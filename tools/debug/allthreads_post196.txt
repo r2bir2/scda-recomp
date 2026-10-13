@@ -1,0 +1,104 @@
+
+************* Preparing the environment for Debugger Extensions Gallery repositories **************
+   ExtensionRepository : Implicit
+   UseExperimentalFeatureForNugetShare : true
+   AllowNugetExeUpdate : true
+   NonInteractiveNuget : true
+   AllowNugetMSCredentialProviderInstall : true
+   AllowParallelInitializationOfLocalRepositories : true
+
+   EnableRedirectToV8JsProvider : false
+
+   -- Configuring repositories
+      ----> Repository : LocalInstalled, Enabled: true
+      ----> Repository : UserExtensions, Enabled: true
+
+>>>>>>>>>>>>> Preparing the environment for Debugger Extensions Gallery repositories completed, duration 0.000 seconds
+
+************* Waiting for Debugger Extensions Gallery to Initialize **************
+
+>>>>>>>>>>>>> Waiting for Debugger Extensions Gallery to Initialize completed, duration 0.015 seconds
+   ----> Repository : UserExtensions, Enabled: true, Packages count: 0
+   ----> Repository : LocalInstalled, Enabled: true, Packages count: 29
+
+Microsoft (R) Windows Debugger Version 10.0.26100.3916 AMD64
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+*** wait with pending attach
+
+************* Path validation summary **************
+Response                         Time (ms)     Location
+Deferred                                       srv*
+Symbol search path is: srv*
+Executable search path is: 
+WARNING: Process 46460 is not attached as a debuggee
+         The process can be examined but debug events will not be received
+.................................
+(b57c.be8c): Wake debugger - code 80000007 (first chance)
+
++------------------------------------------------------------------------+
+| This target supports Hardware-enforced Stack Protection. A HW based    |
+| "Shadow Stack" may be available to assist in debugging and analysis.   |
+| See aka.ms/userhsp for more info.                                      |
+|                                                                        |
+| dps @ssp                                                               |
+|                                                                        |
++------------------------------------------------------------------------+
+
+*** WARNING: Unable to verify checksum for C:\VScode\XboxRecomp\build\scda_upgrade\bin\RelWithDebInfo\scda_recomp.exe
+scda_recomp!sub_0003FCA5+0x17b0:
+00007ff7`85c75340 ebfe            jmp     scda_recomp!sub_0003FCA5+0x17b0 (00007ff7`85c75340)
+0:000> cdb: Reading initial command '~*kb; q'
+
+.  0  Id: b57c.be8c Suspend: 2 Teb: 000000d4`50685000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007ff7`85c92a49     : 00000205`00000000 00000000`00000000 00000000`00000103 00000000`00f7b164 : scda_recomp!sub_0003FCA5+0x17b0
+00007ff7`85d0432f     : 00007ff7`00f7b190 00000000`00000390 00000000`00000398 00000205`40141da0 : scda_recomp!sub_00040821+0x10d9
+00007ff7`85d23577     : 00000000`0004438c 00000000`0000039c 00007ff7`8595d3b8 00007ff7`860869fd : scda_recomp!sub_0004438C+0x25f
+00007ff7`863fbd48     : 00000205`00000000 00000000`01289cc4 00000205`401149f4 00000205`401149d4 : scda_recomp!sub_00045738+0x5c7
+00007ff7`85bc9cd9     : 00000000`01289cc4 00000205`40114640 00000000`01289cc4 00000000`1f6bb57c : scda_recomp!sub_0007DC43+0xd8
+00007ff7`863fe8c7     : 00000000`00f7b1cc 00000000`00000000 00000000`1f6bb57c 00000000`01289c98 : scda_recomp!sub_00036582+0x229
+00007ff7`8641cc67     : 00000205`00000000 00000205`40114640 00000205`40141da0 00000000`00000000 : scda_recomp!sub_0007DE25+0x577
+00007ff7`860ebcce     : 00007ff7`00f7b1e0 00007ff7`01289cc4 00000000`01289c18 00000000`00000000 : scda_recomp!sub_0007F412+0x32b7
+00007ff7`860ecdaa     : 00000000`00000004 00000000`00000000 00000000`00000000 00000000`00000000 : scda_recomp!sub_00064B00+0x33ee
+00007ff7`860eec7e     : 00000000`00f7b6f0 00000000`00000000 00000000`0128ee18 00000205`401149d8 : scda_recomp!sub_00064DEF+0x33a
+00007ff7`860eeee9     : 00000000`00f7b758 00000000`00f7b73c 00000000`00650128 00000000`00f7b738 : scda_recomp!sub_00064FF3+0x1ee
+00007ff7`87bcf2fb     : 00000205`40114640 00000000`00650128 00000000`00000000 00000205`40114640 : scda_recomp!sub_00065015+0x169
+00007ff7`85f4acb8     : 00000000`0128ee18 00000000`00f7b790 00000205`40114640 00000000`00000000 : scda_recomp!sub_001CA0A5+0x77b
+00007ff7`85bc1e91     : 00000205`401149d0 00000000`00f7b798 00000205`401149d8 00000205`401149d8 : scda_recomp!sub_0004BE42+0xb8
+00007ff7`85e4d40b     : 00000205`00000000 00000205`401149e4 00000205`401149dc 00000205`401149d0 : scda_recomp!sub_00035DEE+0x191
+00007ff7`85dd1520     : 00000205`00000000 00000205`401149e4 00000205`401149e0 00000205`401149d0 : scda_recomp!sub_0004934E+0x78a3b
+00007ff7`85dcf986     : 00000205`00f7b784 00000000`00000001 00000000`010d9df8 00000000`00000000 : scda_recomp!sub_00048F1D+0x1030
+00007ff7`85fc7721     : 00000000`00000000 00000000`005e6e20 00000205`005e3e30 00000205`00000000 : scda_recomp!sub_00048B15+0x2436
+00007ff7`85fc7329     : 00007ff7`00000000 00000205`00000000 00000000`00700094 00000000`0000039c : scda_recomp!sub_00054722+0x321
+00007ff7`85f9f7f0     : 00000205`40114640 00000000`00f7ff5c 00007ff7`85945e7f 00000205`40114640 : scda_recomp!sub_00054701+0x169
+00007ff7`8ab9cbc1     : 00007ff8`00f7ff90 00000205`401149ec 00000205`401149e0 00000000`000524da : scda_recomp!sub_000524DA+0x630
+00007ff7`8ab9f8e8     : 00000205`40114640 00000000`00000000 00000000`00000000 00000000`000525ab : scda_recomp!bridge_PsCreateSystemThreadEx+0x181
+00007ff7`85fa033c     : 000000d4`5050f768 000000d4`000000ff 00000000`0000005a 00000000`00000168 : scda_recomp!kernel_thunk_dispatch+0x398
+00007ff7`86136091     : 00000000`00f7ff9c 00007ff7`00000000 00000000`00000000 00000000`00000000 : scda_recomp!sub_00052572+0x37c
+00007ff7`85974948     : 00000205`41c23040 00000000`00000000 000000d4`5050f960 000000d4`5050f111 : scda_recomp!xbe_entry_point+0x261
+00007ff7`8abc6844     : 00000205`4016a320 00000000`00000000 00000000`00000000 00000000`00000000 : scda_recomp!main+0x228
+(Inline Function)     : --------`-------- --------`-------- --------`-------- --------`-------- : scda_recomp!invoke_main+0x22
+00007ff8`cc3a7384     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : scda_recomp!__scrt_common_main_seh+0x10c
+00007ff8`cd65cc91     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : KERNEL32!BaseThreadInitThunk+0x14
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x21
+
+   1  Id: b57c.c208 Suspend: 2 Teb: 000000d4`5068d000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007ff8`caff62de     : 000000d4`50bffea8 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!NtDelayExecution+0x14
+00007ff7`8aba1d7b     : 00007000`00000000 00000000`00000000 00007000`c00000bb 00000000`00000000 : KERNELBASE!SleepEx+0x9e
+00007ff8`cc3a7384     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : scda_recomp!nv2a_ack_thread+0x25b
+00007ff8`cd65cc91     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : KERNEL32!BaseThreadInitThunk+0x14
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x21
+quit:
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\atlmfc.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\ObjectiveC.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\concurrency.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\cpp_rest.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\stl.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Data.Json.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Geolocation.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Devices.Sensors.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\Windows.Media.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\windows.natvis'
+NatVis script unloaded from 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\Visualizers\winrt.natvis'

@@ -1,0 +1,3 @@
+.lines
+bp 00007ff7d00c6720 ".printf \"buf=%ma\\n\", poi(poi(@r8+8)+8); k 15; g"
+g

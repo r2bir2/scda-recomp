@@ -1,0 +1,5 @@
+sxd av
+.lines -e
+bp scda_recomp!sub_0049D210 ".echo ===HIT-sub_0049D210-DeviceCreate===; r eax,edi,ecx; kb 4; g"
+bp scda_recomp!sub_004A12B0 ".echo ===HIT-sub_004A12B0-PollLoop===; dd 0x7000004ab668 L1; kb 6; g"
+g

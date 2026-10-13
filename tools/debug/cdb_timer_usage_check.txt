@@ -1,0 +1,4 @@
+bp scda_recomp!xbox_KeSetTimerEx ".printf \"KESETTIMER-CALL\\n\"; g"
+bp scda_recomp!xbox_timer_callback ".printf \"TIMER-CALLBACK-FIRED\\n\"; g"
+bp scda_recomp!sub_0003FCA5 ".printf \"FATAL-HIT\\n\"; q"
+g

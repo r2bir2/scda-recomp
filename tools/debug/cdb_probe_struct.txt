@@ -1,0 +1,7 @@
+bp 00007ff7d00c6720
+g
+dt _XBOX_OBJECT_ATTRIBUTES @r8
+dt _XBOX_ANSI_STRING poi(@r8+8)
+da poi(poi(@r8+8)+8)
+.detach
+q

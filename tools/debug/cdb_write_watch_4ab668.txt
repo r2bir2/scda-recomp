@@ -1,0 +1,4 @@
+sxd av
+.lines -e
+ba w4 0x7000004ab668 ".echo ===WRITE-4AB668===; dd 0x7000004ab668 L1; kb 5; g"
+g

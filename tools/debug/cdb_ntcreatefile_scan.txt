@@ -1,0 +1,2 @@
+bp 00007ff7d00c6720 ".printf \"access=%p buf=%ma\\n\", @rdx, poi(poi(@r8+8)+8); g"
+g
