@@ -1,0 +1,7 @@
+.symfix
+.sympath+ C:\VScode\XboxRecomp\build\scda\bin\RelWithDebInfo
+.reload
+.ecxr
+!analyze -v
+kv
+q

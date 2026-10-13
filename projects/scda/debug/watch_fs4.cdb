@@ -1,0 +1,5 @@
+.sympath+ C:\VScode\XboxRecomp\game_files\scda
+.reload
+sxd av
+ba w4 00000000`00010004 ".printf \"FS4_WRITE\\n\"; r rip; kb; g"
+g
