@@ -1,0 +1,22 @@
+; Exports of dsp56300.dll (mborgerson/dsp56300 v1.0.0 C API), see
+; build_dsp56300_dll.ps1 and dsp56300_dll.c.
+LIBRARY dsp56300
+EXPORTS
+    dsp56300_create
+    dsp56300_destroy
+    dsp56300_dump_profile
+    dsp56300_reset
+    dsp56300_step
+    dsp56300_run
+    dsp56300_halt_requested
+    dsp56300_set_halt_requested
+    dsp56300_cycle_count
+    dsp56300_set_cycle_count
+    dsp56300_invalidate_cache
+    dsp56300_get_jit_stats
+    dsp56300_read_memory
+    dsp56300_write_memory
+    dsp56300_read_memory_run
+    dsp56300_write_memory_run
+    dsp56300_get_state
+    dsp56300_set_state
