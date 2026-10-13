@@ -1,0 +1,54 @@
+# SCDA Recomp - settings
+# This file sits next to scda_recomp.exe and is read when the game starts.
+# Changes take effect on the next start. Lines starting with # are comments.
+# If the file is missing, it is recreated with these defaults.
+# Values: 0 = off, 1 = on, unless stated otherwise.
+
+[Audio]
+# Surround: 0 = stereo through Windows
+#           1 = Dolby Digital 5.1 passed straight to an AV receiver
+#               (optical/coaxial S/PDIF or HDMI). The Windows volume has no
+#               effect then; set the volume on the receiver. Falls back to 2
+#               if the output does not accept Dolby Digital.
+#           2 = 5.1 as multichannel PCM through Windows (5.1 speakers on
+#               HDMI/analog; a stereo device gets a stereo downmix)
+Surround = 0
+# AudioDevice: empty = Windows default output, otherwise part of the
+# device name, e.g. AudioDevice = S/PDIF
+AudioDevice =
+# MuteInBackground: 1 = silent while the game window is not in front
+# (with Surround = 1 the receiver briefly switches to PCM)
+MuteInBackground = 0
+
+[Graphics]
+# RenderScale: internal resolution, 1 to 4 times 640x480
+RenderScale = 2
+# Widescreen: 1 = 16:9, 0 = 4:3
+Widescreen = 1
+# FPS60: 1 = 60 frames per second, 0 = 30 as on the Xbox
+# (videos always play at their own speed)
+FPS60 = 1
+# VSync: 1 = synchronise to the monitor (no tearing)
+VSync = 1
+# Renderer: vulkan or opengl
+Renderer = vulkan
+
+[Window]
+# Fullscreen: 1 = borderless fullscreen, 0 = window
+Fullscreen = 0
+# Monitor: screen the game starts on, 1 = primary, 2 = second, ...
+Monitor = 1
+# RememberWindow: 1 = keep window size and position when closing
+# (window mode only; stored in scda_window.txt)
+RememberWindow = 1
+
+[Game]
+# Language: EN, DE, FR, ES, IT or JA
+Language = EN
+# SkipIntro: 1 = skip the logo and intro videos at start-up
+SkipIntro = 0
+# Keyboard: 1 = keyboard in addition to a controller
+#   Enter = START, Backspace = BACK, arrow keys = D-pad, A/B/X/Y = A/B/X/Y,
+#   E/S/D/F = left stick, I/J/K/L = right stick, W/O = left/right trigger,
+#   1/2 = White/Black, 3/4 = left/right stick click
+Keyboard = 1
