@@ -1,0 +1,52 @@
+# --- never commit game data, user data or console keys ---
+*.xbe
+*.iso
+*.xiso
+*.umd
+*.sav
+*.xbx
+*.qcow2
+*.img
+*.dmp
+xbox_keys.bin
+*xbox_keys*
+game_files/
+gamefiles/
+UDATA/
+TDATA/
+CACHE/
+
+# --- generated from the game's XBE (see README "Building") ---
+tools/disasm/output/
+tools/func_id/output/
+tools/recomp/output/
+tools/abi_analysis/output/
+tools/split/output/
+tools/xbe_parser/*_analysis.json
+
+# --- build output ---
+build/
+release/
+*.obj
+*.pdb
+*.ilk
+*.exe
+.vs/
+
+# --- runtime output ---
+*.log
+scda_window.txt
+launch_data*.bin
+shader_cache_vk/
+projects/*/saves/
+.scratch_debug/
+
+# --- Python / editors / OS ---
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+.DS_Store
