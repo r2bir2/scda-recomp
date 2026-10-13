@@ -1,0 +1,170 @@
+[
+  {
+    "start": "0x00052FA6",
+    "reason": "False-positive vtable seed inside sub_00052E5C. Native control flow enters from 0x00052F93/0x00052FA3 without a prologue and shares the caller's EBP frame; splitting here corrupts the stack and partition index."
+  },
+  {
+    "start": "0x00056018",
+    "reason": "False-positive vtable seed inside sub_00055D81. Address 0x00056018 is a shared epilogue block reached by fallthrough from 0x00056015 and conditional jumps to 0x0005601D; splitting it leaves sub_0005601D unresolved and skips pop edi/esi/ebx/ebp plus ret 0x10, corrupting the caller's stack."
+  },
+  {
+    "start": "0x0005812C",
+    "reason": "False-positive vtable seed inside the CRT initializer iterator sub_000580E7. Native control flow falls through from test eax,eax at 0x0005812A into je 0x0005812C; splitting here loses the condition flags, treats the table's null sentinel as an indirect call, and exits before later constructors such as 0x0045A6A6."
+  },
+  {
+    "start": "0x00040003",
+    "reason": "False-positive game_vtable seed inside sub_0003FFD3. Native control falls through from 0x00040001 into a call and then into 0x00040008 while retaining the caller's EBP frame. Splitting it makes sub_00040008 inherit a child frame after sub_0003721B, corrupting its three local vector objects; the last subsequently frees heap sentinel 0x00F80180."
+  },
+  {
+    "start": "0x00040260",
+    "reason": "False-positive vtable-thunk seed inside the backend loader sub_0004023A. Native fallthrough keeps the EBP frame and EFLAGS from test eax,eax at 0x00040262; splitting this block loses the following JE condition."
+  },
+  {
+    "start": "0x00040264",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; no native prologue separates it from the preceding test/jump sequence."
+  },
+  {
+    "start": "0x00040270",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it shares the caller's EBP frame and local state."
+  },
+  {
+    "start": "0x0004028C",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it has no independent native entry prologue."
+  },
+  {
+    "start": "0x00040300",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; splitting it discards live register/flag state."
+  },
+  {
+    "start": "0x00040310",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it shares the same native stack frame."
+  },
+  {
+    "start": "0x00040330",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; no return or prologue occurs before it."
+  },
+  {
+    "start": "0x00040338",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it is a basic block, not a function entry."
+  },
+  {
+    "start": "0x00040350",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it depends on the enclosing function frame."
+  },
+  {
+    "start": "0x00040368",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it is reached by ordinary native control flow."
+  },
+  {
+    "start": "0x0004036C",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it is not independently callable in the XBE control flow."
+  },
+  {
+    "start": "0x00040374",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; splitting it corrupts the single native function's control flow."
+  },
+  {
+    "start": "0x0004037C",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough body of sub_0004023A; it has no separate prologue and remains within the same EBP frame."
+  },
+  {
+    "start": "0x00040670",
+    "reason": "False-positive vtable-thunk seed inside the final fallthrough body of sub_0004023A. The native epilogue is at 0x0004075C..0x00040765; 0x00040766 is the next genuine function."
+  },
+  {
+    "start": "0x00040A68",
+    "reason": "False-positive vtable-thunk seed inside fallback resource constructor sub_00040A15. Native fallthrough continues from 0x00040A62 into this allocation call; splitting prevents the constructor from returning its object pointer."
+  },
+  {
+    "start": "0x00040A70",
+    "reason": "False-positive vtable-thunk seed inside sub_00040A15. It is the immediate continuation of the allocator call at 0x00040A6F and shares the constructor's saved registers."
+  },
+  {
+    "start": "0x00040A7C",
+    "reason": "False-positive vtable-thunk seed inside sub_00040A15. The native jump from 0x00040A73 targets this basic block before the common object-pointer return."
+  },
+  {
+    "start": "0x00040A84",
+    "reason": "False-positive vtable-thunk seed inside the shared epilogue of sub_00040A15 (pop esi; ret 0x10). It must remain in the constructor so EAX returns the constructed object."
+  },
+  {
+    "start": "0x0003FCDD",
+    "reason": "False-positive vtable-thunk seed inside the fallthrough of sub_0003FCA5. Native cmp eax,ebx at 0x0003FCDB directly controls JE 0x0003FCED; splitting at 0x0003FCDD loses that live condition and can enter the intentional disc-error loop at 0x0003FE6E."
+  },
+  {
+    "start": "0x00040A90",
+    "reason": "False-positive vtable seed inside the real method beginning at 0x00040A88; native fallthrough retains its stack and register state."
+  },
+  {
+    "start": "0x00040A94",
+    "reason": "False-positive vtable seed inside sub_00040A88; no independent native entry separates it from the preceding pushes."
+  },
+  {
+    "start": "0x00040A98",
+    "reason": "False-positive vtable seed inside sub_00040A88; it shares the enclosing method's state across the file-operation call."
+  },
+  {
+    "start": "0x00040AA0",
+    "reason": "False-positive vtable seed inside sub_00040A88. The native JNE at 0x00040AA0 consumes EFLAGS produced by cmp eax,-1 at 0x00040A9D; splitting it replaced the condition with an uninitialized fallback flag and forced the error branch."
+  },
+  {
+    "start": "0x00040AA4",
+    "reason": "False-positive vtable seed inside sub_00040A88; ordinary native fallthrough shares the caller's stack frame."
+  },
+  {
+    "start": "0x00040AB0",
+    "reason": "False-positive vtable seed inside sub_00040A88; it is a continuation basic block, not a function entry."
+  },
+  {
+    "start": "0x00040AB4",
+    "reason": "False-positive vtable seed inside sub_00040A88; it is reached only by native fallthrough."
+  },
+  {
+    "start": "0x00040AB8",
+    "reason": "False-positive vtable seed inside sub_00040A88; it retains live ESI/EDI and stacked call arguments."
+  },
+  {
+    "start": "0x00040AC0",
+    "reason": "False-positive vtable seed inside sub_00040A88; splitting it turns the preceding fallthrough into a host C call and obscures the error/result path."
+  },
+  {
+    "start": "0x0005FD04",
+    "reason": "False-positive vtable seed inside sub_0005FBDA. 0x0005FD04 is the ordinary fallthrough continuation and common epilogue (including the internal branch targets 0x0005FD10, 0x0005FD1C, and 0x0005FD39). Splitting it sends those internal targets to unresolved stubs, skips the real pop/leave/ret sequence, leaks 0x20 guest-stack bytes, and restores EDI from the wrong slot."
+  },
+  {
+    "start": "0x00036138",
+    "reason": "False-positive vtable seed inside sub_00036135. The native function begins with `push ebp; mov ebp, esp` at 0x00036135 and falls directly into 0x00036138. The latter reads [ebp+8] and ultimately pops EBP, so it cannot be an independently callable entry. Splitting it into a C function breaks the EBP/register lifetime and produced the runtime vector-copy source 0x00000009."
+  },
+  {
+    "start": "0x00036172",
+    "reason": "False-positive vtable seed in the shared loop continuation/epilogue of sub_00036135. It consumes the EBP/EBX/ESI/EDI state established at 0x00036135 and is reached by the ordinary fallthrough from 0x0003616D and branch from 0x00036163; it is not a standalone function."
+  },
+  {
+    "start": "0x000477F9",
+    "reason": "False-positive vtable seed inside real virtual method sub_00047797. The native method starts at 0x00047797 (the file-manager VTable target at 0x004F7268), then falls through 0x000477F9 into its shared body and epilogue at 0x00047858..0x0004785E. Splitting 0x000477F9 loses the caller's saved EBX/ESI/EDI frame; the observed result was EBX=0x004F7248 on return to 0x00072D25, causing the output vector at 0x00F7B244 to be initialized with VTable addresses and later copy from 0x00000009."
+  },
+  {
+    "start": "0x0004655D",
+    "reason": "False-positive vtable-thunk seed inside sub_000464EC. Native execution falls through from `test eax,eax` at 0x0004655B into JE 0x00046877 while retaining EBP, EFLAGS, and the saved EBX/ESI/EDI frame. The split made the continuation a host-C call, lost EFLAGS, and returned with ESP four bytes low, restoring EBX as 0x004F7248."
+  },
+  {
+    "start": "0x00046683",
+    "reason": "False-positive vtable-thunk seed in the same sub_000464EC frame. It is a native continuation reached from 0x0004666A/0x00046672 and shares the enclosing function's EBP frame and epilogue."
+  },
+  {
+    "start": "0x000466A0",
+    "reason": "False-positive vtable-thunk seed in the same sub_000464EC frame. It is a native fallthrough/branch continuation at 0x000466A0 with no prologue; splitting it loses the live frame and stack state."
+  },
+  {
+    "start": "0x00046F00",
+    "reason": "False-positive seed inside sub_00046EC8. Native execution falls through from imul at 0x00046EFD into 0x00046F00 and exits through the shared epilogue 0x00046F2B (pop edi/esi/ebx/ebp; ret 4). Splitting it into a C function makes the fallthrough a host call and restores EDI from the wrong frame, changing the hash-node pointer into node+8 before the caller's lea eax,[edi+8]."
+  },
+  {
+    "start": "0x0003EE32",
+    "reason": "2026-09-13 (Update 143): false-positive imm_ref_target seed inside sub_0003EDF3's own SEH __try/__finally body. Address 0x0003EE32 is the __except FILTER continuation this MSVC-generated function embeds in its own frame (matches the classic _except_handler3 scope-table pattern: locals at ebp-4/ebp-0xc/ebp-0x10, `mov dword ptr fs:[0], ecx` restoring the SEH chain at the real epilogue). It is referenced only as a DATA immediate (`mov eax, 0x3EE32` at 0x0003EE3F, the scope-table's continuation address for the outer function's own filter), never called or jumped to directly from other code -- it shares sub_0003EDF3's stack frame and is not independently callable. Splitting it here truncated sub_0003EDF3 to 63 bytes (ending mid-body on a bare `call dword ptr [eax]` with no ret), instead of its real ~685-byte body ending at 0x0003EEA0 (`ret 8`). Confirmed live: RECOMP_ABI_CHECK's own diagnostic caught it directly -- `[ABI] sub_0003EDF3: esi esp(epilogue never ran)`, esi clobbered to 0 and esp off by -2076 on return -- exactly the signature of a lifted function whose C body never reaches its own epilogue because the translator cut it off mid-function. See docs/SCDA_WORKLOG.md, Update 143."
+  },
+  {
+    "start": "0x0003EE3F",
+    "reason": "2026-09-13 (Update 143): same false-positive family as 0x0003EE32 above -- the 2-instruction `mov eax, 0x3EE32; ret` snippet immediately after the filter's jmp target, also only reached as a same-frame SEH continuation inside sub_0003EDF3, not an independently callable function. Excluding it alongside 0x0003EE32 lets sub_0003EDF3 extend through its real body to its actual `ret 8` at 0x0003EEA0."
+  }
+]

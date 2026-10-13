@@ -1,0 +1,10 @@
+[
+  {
+    "address": "0x004A12B0",
+    "reason": "D3D pushbuffer kick: read/or/spin on PFB 0x100410 and write USER DMA_PUT (0x800040) through the register pointer at [0x4AB668]+0x1C28 / [esi+0x1C20]. RECOMP_NV2A_MMIO_SITES: ~84% of ~26,000 NV2A traps per second at the hq2 quicksave spot (docs Update 643)."
+  },
+  {
+    "address": "0x004A1160",
+    "reason": "D3D pushbuffer space check: reads USER DMA_GET (0x800044) through the register pointer. ~11% of the NV2A traps at the same spot (docs Update 643)."
+  }
+]
