@@ -73,6 +73,10 @@ endif()
 # docs/SCDA_WORKLOG.md, "continued 26".
 option(SCDA_AB_TRACE "Emit a compact per-basic-block A/B trace log instead of the normal diagnostic hooks" OFF)
 
+if(NOT WIN32)
+    # ARM port (docs Update 677): 16-bit wchar_t like the runtime's WCHAR
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-fshort-wchar>)
+endif()
 add_subdirectory("${XBOXRECOMP_DIR}" "${CMAKE_BINARY_DIR}/xboxrecomp")
 file(GLOB SCDA_GENERATED CONFIGURE_DEPENDS "${SCDA_GEN_DIR}/*.c")
 
@@ -87,17 +91,53 @@ if(NOT SCDA_AB_TRACE)
     target_compile_definitions(xbox_kernel PRIVATE RECOMP_ABI_CHECK)
 endif()
 
+# the HLE renderer is C++ (agent_handoff/HLE_RENDERER_PLAN.md)
+enable_language(CXX)
 add_executable(scda_recomp
     src/main.c
     src/recomp_manual.c
     src/scda_input.c
     src/scda_options.c
     src/scda_layout.c
+    # HLE renderer entry points and core (agent_handoff/HLE_RENDERER_PLAN.md)
+    src/hle_d3d_wrappers.c
+    src/hle_d3d.c
     ${SCDA_GENERATED}
 )
 if(SCDA_AB_TRACE)
     target_sources(scda_recomp PRIVATE src/scda_ab_trace.c)
 endif()
+
+# HLE renderer: host implementations of the title's Direct3D 8 calls, as an
+# object library of its own (objects always linked: d3d8.cpp registers its
+# functions from static constructors) whose include paths stay away from the C
+# sources.
+# hle/tgp holds sources from SCDA-XBERecomp (MIT, (c) 2026 TGP482,
+# Joshhhuaaa, see hle/tgp/LICENSE and PROVENANCE.md); hle/compat maps their
+# runtime calls onto this one (BEFORE: compat's kernel/kernel.h etc. must win
+# over the runtime's headers of the same name).
+add_library(scda_hle OBJECT
+    src/hle/hle_glue.cpp
+    src/hle/tgp/xdk/d3d8.cpp
+    src/hle/tgp/gpu/texture.cpp
+    src/hle/tgp/gpu/vertex.cpp
+    src/hle/tgp/gpu/shaders.cpp
+)
+target_include_directories(scda_hle BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hle/compat
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/hle/tgp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+if(NOT WIN32)
+    target_include_directories(scda_hle BEFORE PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/hle/compat_posix)
+endif()
+set_target_properties(scda_hle PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+if(MSVC)
+    target_compile_options(scda_hle PRIVATE /W3 /utf-8)
+    target_compile_definitions(scda_hle PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+endif()
+target_link_libraries(scda_recomp PRIVATE scda_hle)
 
 # templates/runtime first, so hand-written sources get the template. The
 # generated .c files include "recomp_types.h" with quotes and therefore always
@@ -335,6 +375,16 @@ if(MSVC)
     set_target_properties(scda_recomp PROPERTIES
         VS_DEBUGGER_WORKING_DIRECTORY "${XBOXRECOMP_DIR}"
         VS_DEBUGGER_ENVIRONMENT "XBOX_LOG_LEVEL=4")
+endif()
+
+if(NOT MSVC)
+    # Linux (ARM port, docs Update 677). The generated code at -O1 without
+    # debug info (2.7 M lines; -O2 -g needs hours and more RAM than the
+    # board has), with MSVC's aliasing and overflow semantics.
+    set_source_files_properties(${SCDA_GENERATED} PROPERTIES
+        COMPILE_OPTIONS "-w;-O1;-g0;-fno-strict-aliasing;-fwrapv")
+    target_compile_options(scda_recomp PRIVATE -fno-strict-aliasing -fwrapv)
+    target_link_libraries(scda_recomp PRIVATE m dl pthread)
 endif()
 
 set_target_properties(scda_recomp PROPERTIES

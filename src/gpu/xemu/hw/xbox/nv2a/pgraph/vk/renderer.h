@@ -301,6 +301,14 @@ typedef struct PGRAPHVkDisplayState {
 #endif
     GLuint gl_memory_obj;
     GLuint gl_texture_id;
+
+    /* xboxrecomp (docs Update 672): readback fallback when the driver will
+     * not export the display image to GL (GTX 960M under Optimus). */
+    bool readback;
+    VkBuffer rb_buffer;
+    VkDeviceMemory rb_memory;
+    void *rb_mapped;
+    bool rb_noncoherent;   /* docs Update 677 */
 } PGRAPHVkDisplayState;
 
 typedef struct ComputePipelineKey {
@@ -334,6 +342,10 @@ typedef struct PGRAPHVkState {
 
     bool debug_utils_extension_enabled;
     bool custom_border_color_extension_enabled;
+    bool sampler_anisotropy_enabled;   /* xboxrecomp, docs Update 669 */
+    bool geometry_shader_supported;    /* xboxrecomp, docs Update 675 */
+    bool fill_mode_non_solid_enabled;  /* xboxrecomp, docs Update 675 */
+    bool display_interop_enabled;      /* xboxrecomp, docs Update 675 */
     bool provoking_vertex_extension_enabled;
     bool memory_budget_extension_enabled;
 
@@ -382,6 +394,8 @@ typedef struct PGRAPHVkState {
         uint32_t first_query, frame;
         hwaddr color_addr, zeta_addr;
         unsigned int width, height;
+        int end_line;   /* draw.c line that ended the pass */
+        unsigned int draws;
     } pass_probe[RECOMP_VK_PASS_PROBE_MAX];
 
     VkCommandBuffer aux_command_buffer;
@@ -642,7 +656,9 @@ bool pgraph_vk_stage_vertex_ram_update(PGRAPHState *pg, hwaddr offset,
 void pgraph_vk_flush_draw(NV2AState *d);
 void pgraph_vk_begin_command_buffer(PGRAPHState *pg);
 void pgraph_vk_ensure_command_buffer(PGRAPHState *pg);
-void pgraph_vk_ensure_not_in_render_pass(PGRAPHState *pg);
+void pgraph_vk_ensure_not_in_render_pass_at(PGRAPHState *pg, int line);
+/* the caller line goes to the pass probe (surface.c lines + 100000) */
+#define pgraph_vk_ensure_not_in_render_pass(pg) pgraph_vk_ensure_not_in_render_pass_at((pg), __LINE__ + (__FILE__[sizeof(__FILE__) - 4] == 'e' ? 100000 : 0))
 
 VkCommandBuffer pgraph_vk_begin_nondraw_commands(PGRAPHState *pg);
 void pgraph_vk_end_nondraw_commands(PGRAPHState *pg, VkCommandBuffer cmd);

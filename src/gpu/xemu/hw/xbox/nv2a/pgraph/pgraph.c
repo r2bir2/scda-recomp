@@ -28,6 +28,8 @@
 #include "swizzle.h"
 #include "nv2a_vsh_emulator.h"
 
+extern bool nv2a_gl_legacy_context;   /* src/gpu/gloffscreen_wgl.c */
+
 /* xboxrecomp diagnostic (Update 360): the model VSH uses c183/c184 and the
  * Recomp trace has observed NaNs there. Retain only the corresponding
  * pushbuffer writes during an explicit F11 burst, including the DMA cursor
@@ -417,6 +419,14 @@ static void init_renderer(PGRAPHState *pg)
     }
 
     CONFIG_DISPLAY_RENDERER default_renderer = get_default_renderer();
+    /* xboxrecomp (docs Update 675): the OpenGL renderer needs a 4.0 context;
+     * with only an older one (display-only) there is nothing to fall back to */
+    if (nv2a_gl_legacy_context &&
+        default_renderer == CONFIG_DISPLAY_RENDERER_OPENGL) {
+        fprintf(stderr, "Fatal error: Vulkan renderer failed and OpenGL is "
+                "below 4.0 -- no renderer available\n");
+        exit(1);
+    }
     if (default_renderer != g_config.display.renderer) {
         g_config.display.renderer = default_renderer;
         if (attempt_renderer_init(pg)) {

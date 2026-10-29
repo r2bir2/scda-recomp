@@ -20,6 +20,7 @@
  * For a method header: count = (w >> 18) & 0x7FF, subchannel = (w >> 13) & 7,
  * method = w & 0x1FFC.
  */
+#include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>

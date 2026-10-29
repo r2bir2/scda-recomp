@@ -30,9 +30,15 @@ static void create_buffer(PGRAPHState *pg, StorageBuffer *buffer)
         .usage = buffer->usage,
         .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     };
-    VK_CHECK(vmaCreateBuffer(r->allocator, &buffer_create_info,
-                             &buffer->alloc_info, &buffer->buffer,
-                             &buffer->allocation, NULL));
+    VkResult result = vmaCreateBuffer(r->allocator, &buffer_create_info,
+                                      &buffer->alloc_info, &buffer->buffer,
+                                      &buffer->allocation, NULL);
+    if (result != VK_SUCCESS) {
+        fprintf(stderr, "[VK] buffer %d (%llu MiB) could not be created: %d\n",
+                (int)(buffer - r->storage_buffers),
+                (unsigned long long)(buffer->buffer_size >> 20), (int)result);
+    }
+    VK_CHECK(result);
 }
 
 static void destroy_buffer(PGRAPHState *pg, StorageBuffer *buffer)
@@ -73,11 +79,65 @@ void pgraph_vk_init_buffers(NV2AState *d)
         .buffer_size = r->storage_buffers[BUFFER_STAGING_DST].buffer_size,
     };
 
+    /* xboxrecomp (docs Update 673): the two depth/stencil conversion buffers
+     * were a fixed 800 MiB each, device-local. On a 2 GiB card (GTX 960M)
+     * that left almost no VRAM, and the first display-image allocation
+     * failed with VK_ERROR_OUT_OF_DEVICE_MEMORY. Size them to an eighth of
+     * the largest device-local heap, between 128 MiB and the old 800 MiB
+     * (a conversion needs about 5 bytes per scaled pixel: 128 MiB still
+     * holds a 2048x2048 surface at render scale 2). */
+    VkDeviceSize compute_size = (VkDeviceSize)(1024 * 10) * (1024 * 10) * 8;
+    /* docs Update 675: the inline vertex ring (and its staging twin) was a
+     * fixed 1279 MiB -- ten maximal batches. It is flushed whenever it runs
+     * full (ensure_buffer_space), so it only has to hold one batch; on a
+     * shared-memory GPU (Mali, 7.5 GB board) the full size failed with
+     * VK_ERROR_OUT_OF_DEVICE_MEMORY. A sixteenth of the device-local heap,
+     * at least one batch, at most the old size. */
+    const VkDeviceSize one_batch = (VkDeviceSize)NV2A_VERTEXSHADER_ATTRIBUTES *
+                                   NV2A_MAX_BATCH_LENGTH * 4 * sizeof(float);
+    VkDeviceSize inline_size = one_batch * 10;
+    {
+        VkPhysicalDeviceMemoryProperties mp;
+        vkGetPhysicalDeviceMemoryProperties(r->physical_device, &mp);
+        VkDeviceSize vram = 0;
+        for (uint32_t i = 0; i < mp.memoryHeapCount; i++) {
+            if ((mp.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) &&
+                mp.memoryHeaps[i].size > vram) {
+                vram = mp.memoryHeaps[i].size;
+            }
+        }
+        /* integrated GPUs (Mali: one 7.5 GB pool for everything) take half
+         * as much again -- two instances meet during a title relaunch and
+         * ran the board out of memory (docs Update 676) */
+        VkPhysicalDeviceProperties dev_props;
+        vkGetPhysicalDeviceProperties(r->physical_device, &dev_props);
+        if (dev_props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+            vram /= 4;
+        VkDeviceSize want = vram / 8;
+        if (want < 128ull * 1024 * 1024)
+            want = 128ull * 1024 * 1024;
+        if (want < compute_size)
+            compute_size = want;
+        VkDeviceSize want_inline = vram / 16;
+        if (want_inline < one_batch)
+            want_inline = one_batch;
+        if (want_inline < inline_size)
+            inline_size = want_inline;
+        const char *e = getenv("RECOMP_VK_CONVERSION_MB"); /* test override */
+        if (e && atoi(e) > 0)
+            compute_size = (VkDeviceSize)atoi(e) << 20;
+        fprintf(stderr, "[VK] conversion buffers %llu MiB each, inline vertex "
+                "ring %llu MiB (VRAM %llu MiB)\n",
+                (unsigned long long)(compute_size >> 20),
+                (unsigned long long)(inline_size >> 20),
+                (unsigned long long)(vram >> 20));
+    }
+
     r->storage_buffers[BUFFER_COMPUTE_DST] = (StorageBuffer){
         .alloc_info = device_alloc_create_info,
         .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        .buffer_size = (1024 * 10) * (1024 * 10) * 8,
+        .buffer_size = compute_size,
     };
 
     r->storage_buffers[BUFFER_COMPUTE_SRC] = (StorageBuffer){
@@ -117,8 +177,7 @@ void pgraph_vk_init_buffers(NV2AState *d)
         .alloc_info = device_alloc_create_info,
         .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        .buffer_size = NV2A_VERTEXSHADER_ATTRIBUTES * NV2A_MAX_BATCH_LENGTH *
-                       4 * sizeof(float) * 10,
+        .buffer_size = inline_size,
     };
 
     r->storage_buffers[BUFFER_VERTEX_INLINE_STAGING] = (StorageBuffer){

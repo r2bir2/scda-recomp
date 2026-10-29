@@ -56,6 +56,11 @@ static inline void xbox_path_normalize(char *p)
 #endif
 #include <windows.h>
 
+/* host instruction / stack pointer of a VEH context (ARM port, Update 677) */
+#define XBOX_CONTEXT_PC(c) ((c)->Rip)
+#define XBOX_CONTEXT_SP(c) ((c)->Rsp)
+#define XBOX_HOST_X86_64 1
+
 /* Wide-string helpers: map to the real CRT functions on Windows. */
 #define xbox_wcslen  wcslen
 #define xbox_wcsncmp wcsncmp
@@ -63,6 +68,24 @@ static inline void xbox_path_normalize(char *p)
 #define xbox_wcscpy  wcscpy
 
 #else /* !_WIN32 */
+
+/* The runtime's Win32 code paths (file system, paths) also run on POSIX
+ * hosts on top of win32_compat (SCDA ARM port, docs Update 677), so there
+ * is one tested implementation instead of a drifting POSIX twin. */
+#define XBOX_POSIX_WIN32_SHIM 1
+
+/* MSVC __declspec spellings the runtime uses, as GCC attributes */
+#ifndef __declspec
+#define __declspec(x) XBOX_DECLSPEC_##x
+#define XBOX_DECLSPEC_thread      __thread
+#define XBOX_DECLSPEC_dllexport   __attribute__((visibility("default")))
+#define XBOX_DECLSPEC_dllimport
+#define XBOX_DECLSPEC_noinline    __attribute__((noinline))
+#define XBOX_DECLSPEC_noreturn    __attribute__((noreturn))
+#define XBOX_DECLSPEC_selectany   __attribute__((weak))
+#define XBOX_DECLSPEC_align(n)    __attribute__((aligned(n)))
+#define XBOX_DECLSPEC_deprecated(m) __attribute__((deprecated(m)))
+#endif
 
 /* ---- Linux / POSIX host: define the NT type vocabulary ------------------ */
 
@@ -137,9 +160,44 @@ typedef void             **PHANDLE, **LPHANDLE;
 typedef void              *HMODULE, *HINSTANCE, *HKEY, *HLOCAL, *HGLOBAL;
 typedef void              *HWND, *HDC, *HBITMAP, *HICON, *HMENU, *HCURSOR;
 
-/* PCONTEXT: Windows VEH register state. On Linux the equivalent is
- * ucontext_t*; we leave it opaque here since Linux callers don't use it. */
-typedef void              *PCONTEXT;
+/* CONTEXT: Windows VEH register state, filled from the signal's ucontext_t
+ * by the POSIX VEH emulation (win32_compat.c) and written back after the
+ * handlers ran (docs Update 677, ARM port). Only the host's own registers
+ * exist: code that reads x86 registers (Rip, Rsp, ...) is x86-host only and
+ * guarded by XBOX_HOST_X86_64. */
+#if defined(__x86_64__)
+#define XBOX_HOST_X86_64 1
+#endif
+typedef struct _CONTEXT {
+    uint32_t ContextFlags;
+#if defined(__aarch64__)
+    uint64_t X[31];   /* x0..x30 (x29 frame pointer, x30 link register) */
+    uint64_t Sp;
+    uint64_t Pc;
+    uint64_t Pstate;
+#else
+    uint64_t Rax, Rcx, Rdx, Rbx, Rsp, Rbp, Rsi, Rdi;
+    uint64_t R8, R9, R10, R11, R12, R13, R14, R15;
+    uint64_t Rip;
+    uint32_t EFlags;
+#endif
+    void *HostContext;   /* the signal's ucontext_t */
+} CONTEXT, *PCONTEXT;
+#define CONTEXT_CONTROL         0x1u
+#define CONTEXT_INTEGER         0x2u
+#define CONTEXT_FLOATING_POINT  0x8u
+#define CONTEXT_FULL            (CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_FLOATING_POINT)
+#if defined(__aarch64__)
+#define XBOX_CONTEXT_PC(c) ((c)->Pc)
+#define XBOX_CONTEXT_SP(c) ((c)->Sp)
+#else
+#define XBOX_CONTEXT_PC(c) ((c)->Rip)
+#define XBOX_CONTEXT_SP(c) ((c)->Rsp)
+#endif
+typedef uint64_t           DWORD64, *PDWORD64;
+#ifndef __int64
+#define __int64 long long   /* a macro, so "unsigned __int64" works */
+#endif
 
 /* Xbox/UTF-16 wide char is 16-bit, unlike the 32-bit Linux wchar_t. */
 typedef uint16_t           WCHAR, *PWCHAR, *LPWSTR, *PWSTR;

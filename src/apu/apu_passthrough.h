@@ -18,3 +18,8 @@ void apu_passthrough_set_muted(int muted);
 void apu_passthrough_feed(const uint8_t *buf, size_t len);
 /* Queued 256-sample blocks of the carrier, -1 when inactive (APU pacing). */
 int apu_passthrough_queued_blocks(void);
+
+/* Endpoint ID of the AudioDevice option (RECOMP_AUDIO_DEVICE: hdmi, spdif,
+ * toslink, optical or part of a name) for XAudio2; 0 = use the default.
+ * COM must be initialised on the calling thread. */
+int apu_output_device_id(wchar_t *out, size_t out_len);

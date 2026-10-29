@@ -152,42 +152,116 @@ static DWORD WINAPI render_thread(LPVOID arg)
     return 0;
 }
 
-/* The render endpoint: RECOMP_AUDIO_DEVICE=<part of its name> if set, else
- * the Windows default output. */
+/* The render endpoint (docs Update 662). RECOMP_AUDIO_DEVICE / the
+ * AudioDevice option:
+ *   empty                      the Windows default output
+ *   hdmi                       the first HDMI output (form factor
+ *                              DigitalAudioDisplayDevice, or "HDMI" in its
+ *                              name)
+ *   spdif, s/pdif, toslink,
+ *   optical, coax, digital     the first S/PDIF output (form factor SPDIF /
+ *                              digital passthrough, or such a word in its
+ *                              name) -- Toslink is optical S/PDIF
+ *   anything else              the first output whose name contains it
+ *                              (case-insensitive)
+ * Used by the Dolby Digital passthrough and, through apu_output_device_id,
+ * by XAudio2 for stereo and PCM 5.1. Every call logs the active outputs, so
+ * a player can look up the name in scda_runtime.log. */
+static const PROPERTYKEY s_pkey_form_factor = {
+    { 0x1da5d803, 0xd492, 0x4edd,
+      { 0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e } }, 0 };
+
+enum { FF_DIGITAL_PASSTHROUGH = 7, FF_SPDIF = 8, FF_HDMI = 9 };
+
+static const char *form_factor_name(UINT ff)
+{
+    static const char *const names[] = {
+        "network", "speakers", "line out", "headphones", "microphone",
+        "headset", "handset", "digital", "S/PDIF", "HDMI", "unknown" };
+    return ff < sizeof(names) / sizeof(names[0]) ? names[ff] : "unknown";
+}
+
+static int wcontains_ci(const wchar_t *hay, const wchar_t *needle)
+{
+    size_t n = wcslen(needle);
+    if (!n)
+        return 0;
+    for (; *hay; hay++)
+        if (!_wcsnicmp(hay, needle, n))
+            return 1;
+    return 0;
+}
+
+static int device_matches(const char *want, const wchar_t *name, UINT ff)
+{
+    static const char *const spdif_words[] = {
+        "spdif", "s/pdif", "toslink", "optical", "coax", "digital" };
+    static const wchar_t *const spdif_names[] = {
+        L"SPDIF", L"S/PDIF", L"Optical", L"Optisch", L"Digital", L"Toslink" };
+    wchar_t wwant[128];
+
+    if (!_stricmp(want, "hdmi"))
+        return ff == FF_HDMI || wcontains_ci(name, L"HDMI");
+    for (size_t i = 0; i < sizeof(spdif_words) / sizeof(spdif_words[0]); i++) {
+        if (_stricmp(want, spdif_words[i]))
+            continue;
+        if (ff == FF_SPDIF || ff == FF_DIGITAL_PASSTHROUGH)
+            return 1;
+        for (size_t k = 0; k < sizeof(spdif_names) / sizeof(spdif_names[0]); k++)
+            if (wcontains_ci(name, spdif_names[k]))
+                return 1;
+        return 0;
+    }
+    MultiByteToWideChar(CP_ACP, 0, want, -1, wwant, 128);
+    return wcontains_ci(name, wwant);
+}
+
 static IMMDevice *pick_device(IMMDeviceEnumerator *en)
 {
     const char *want = getenv("RECOMP_AUDIO_DEVICE");
     IMMDevice *dev = NULL;
-    if (want && *want) {
-        IMMDeviceCollection *col = NULL;
-        UINT n = 0;
-        wchar_t wwant[128];
-        MultiByteToWideChar(CP_ACP, 0, want, -1, wwant, 128);
-        if (SUCCEEDED(IMMDeviceEnumerator_EnumAudioEndpoints(en, eRender,
-                DEVICE_STATE_ACTIVE, &col))) {
-            IMMDeviceCollection_GetCount(col, &n);
-            for (UINT i = 0; i < n && !dev; i++) {
-                IMMDevice *d = NULL;
-                IPropertyStore *ps = NULL;
-                PROPVARIANT name;
-                PropVariantInit(&name);
-                IMMDeviceCollection_Item(col, i, &d);
-                if (SUCCEEDED(IMMDevice_OpenPropertyStore(d, STGM_READ, &ps)) &&
-                    SUCCEEDED(IPropertyStore_GetValue(ps, &PKEY_Device_FriendlyName, &name)) &&
-                    name.vt == VT_LPWSTR && wcsstr(name.pwszVal, wwant)) {
-                    dev = d;
-                    d = NULL;
-                }
-                PropVariantClear(&name);
-                if (ps) IPropertyStore_Release(ps);
-                if (d) IMMDevice_Release(d);
+    IMMDeviceCollection *col = NULL;
+    UINT n = 0;
+
+    if (SUCCEEDED(IMMDeviceEnumerator_EnumAudioEndpoints(en, eRender,
+            DEVICE_STATE_ACTIVE, &col))) {
+        IMMDeviceCollection_GetCount(col, &n);
+        for (UINT i = 0; i < n; i++) {
+            IMMDevice *d = NULL;
+            IPropertyStore *ps = NULL;
+            PROPVARIANT name, ff;
+            UINT form = 10;
+            const wchar_t *wname = L"?";
+            int chosen = 0;
+            PropVariantInit(&name);
+            PropVariantInit(&ff);
+            IMMDeviceCollection_Item(col, i, &d);
+            if (d && SUCCEEDED(IMMDevice_OpenPropertyStore(d, STGM_READ, &ps))) {
+                if (SUCCEEDED(IPropertyStore_GetValue(ps, &PKEY_Device_FriendlyName,
+                                                      &name)) &&
+                    name.vt == VT_LPWSTR)
+                    wname = name.pwszVal;
+                if (SUCCEEDED(IPropertyStore_GetValue(ps, &s_pkey_form_factor, &ff)) &&
+                    ff.vt == VT_UI4)
+                    form = ff.ulVal;
             }
-            IMMDeviceCollection_Release(col);
+            if (!dev && d && want && *want && device_matches(want, wname, form)) {
+                dev = d;
+                d = NULL;
+                chosen = 1;
+            }
+            fprintf(stderr, "[AUDIO] output %u: %ls (%s)%s\n", i + 1, wname,
+                    form_factor_name(form), chosen ? "  <- AudioDevice" : "");
+            PropVariantClear(&name);
+            PropVariantClear(&ff);
+            if (ps) IPropertyStore_Release(ps);
+            if (d) IMMDevice_Release(d);
         }
-        if (!dev) {
-            fprintf(stderr, "[AC3-OUT] no output matches RECOMP_AUDIO_DEVICE=%s, "
-                            "using the default\n", want);
-        }
+        IMMDeviceCollection_Release(col);
+    }
+    if (want && *want && !dev) {
+        fprintf(stderr, "[AUDIO] no output matches AudioDevice=%s, "
+                        "using the Windows default\n", want);
     }
     if (!dev) {
         IMMDeviceEnumerator_GetDefaultAudioEndpoint(en, eRender, eConsole, &dev);
@@ -205,6 +279,38 @@ static IMMDevice *pick_device(IMMDeviceEnumerator *en)
         if (ps) IPropertyStore_Release(ps);
     }
     return dev;
+}
+
+/* For XAudio2's mastering voice: the endpoint ID of the AudioDevice choice,
+ * 0 (= use the default) when the option is empty or nothing matches. COM
+ * must be initialised on the calling thread. */
+int apu_output_device_id(wchar_t *out, size_t out_len)
+{
+    const char *want = getenv("RECOMP_AUDIO_DEVICE");
+    IMMDeviceEnumerator *en = NULL;
+    IMMDevice *dev = NULL;
+    LPWSTR id = NULL;
+    int ok = 0;
+
+    if (!out || !out_len)
+        return 0;
+    if (FAILED(CoCreateInstance(&s_clsid_enum, NULL, CLSCTX_ALL, &s_iid_enum,
+                                (void **)&en)) || !en)
+        return 0;
+    /* without a match this is the default output -- same as passing none;
+     * with the option empty the call only logs the outputs */
+    dev = pick_device(en);
+    if (dev && want && *want) {
+        if (SUCCEEDED(IMMDevice_GetId(dev, &id)) && id) {
+            wcsncpy_s(out, out_len, id, _TRUNCATE);
+            ok = 1;
+            CoTaskMemFree(id);
+        }
+    }
+    if (dev)
+        IMMDevice_Release(dev);
+    IMMDeviceEnumerator_Release(en);
+    return ok;
 }
 
 static HRESULT init_client(IMMDevice *dev, const WAVEFORMATEX *fmt)

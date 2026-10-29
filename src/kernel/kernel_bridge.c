@@ -3321,6 +3321,10 @@ void xbox_irq_safepoint(void)
 static HANDLE g_guest_threads[XBOX_MAX_GUEST_THREADS];
 static volatile LONG g_guest_thread_count;
 static uintptr_t g_gen_lo, g_gen_hi;           /* translated-code host range */
+/* The thread hijack is Windows/x86-64 only (SuspendThread, Get/SetThread-
+ * Context, RtlRestoreContext); POSIX hosts deliver IRQs synchronously, as
+ * RECOMP_IRQ_ASYNC=0 does on Windows (ARM port, docs Update 677). */
+#if defined(_WIN32)
 static __declspec(align(16)) CONTEXT g_hijack_ctx;
 static volatile LONG g_hijack_active;
 static volatile LONG g_async_hijacks;
@@ -3472,12 +3476,22 @@ static void irq_async_start_once(void)
     const char *a = getenv("RECOMP_IRQ_ASYNC");
     const char *x = getenv("RECOMP_NV2A_XEMU");
     int on = (a && *a && *a != '0') || (x && *x && *x != '0');
+    /* RECOMP_IRQ_ASYNC=0 opts out even on the xemu GPU path (docs Update
+     * 675): under Box64 a suspended thread's context holds stale registers
+     * the dynarec keeps in ARM registers, so the hijack corrupted state. */
+    if (a && a[0] == '0')
+        on = 0;
     if (!on || InterlockedExchange(&started, 1))
         return;
     /* First in the chain, ahead of the MMIO VEHs registered at init. */
     AddVectoredExceptionHandler(1, irq_hijack_fault_veh);
     CloseHandle(CreateThread(NULL, 0, irq_async_thread, NULL, 0, NULL));
 }
+#else
+static volatile LONG g_hijack_active;   /* never set: no hijack here */
+static void irq_async_start_once(void) {}
+void xbox_irq_register_guest_thread(void) {}
+#endif /* _WIN32: async IRQ hijack */
 
 /* BOOLEAN KeConnectInterrupt(PKINTERRUPT Interrupt)
  * FALSE when the object is already connected or the line is taken, as the

@@ -89,6 +89,9 @@ static uintptr_t s_gpu_pb_watch_contig;
 static uint32_t s_gpu_pb_watch_phys;
 static uint32_t s_gpu_pb_watch_slot_off;
 
+/* The write watches below single-step via EFlags.TF and unwind with the
+ * Windows x64 tables: Windows/x86-64 only (ARM port, docs Update 677). */
+#if defined(_WIN32)
 /* Unwind the *faulting* context, not the VEH's own dispatcher stack.  The
  * latter has no title frames because Windows invokes a VEH from ntdll. */
 static unsigned xbox_gpu_pb_watch_unwind(const CONTEXT *fault_ctx,
@@ -186,7 +189,7 @@ static LONG CALLBACK xbox_gpu_pb_watch_veh(PEXCEPTION_POINTERS ep)
                 s_gpu_pb_watch_phys, (void *)fault,
                 write_off, s_gpu_pb_watch_slot_off, event, slot_hit,
                 fault == s_gpu_pb_watch_tiled ? "tiled" : "contig",
-                (void *)ep->ContextRecord->Rip, (void *)ep->ContextRecord->Rsp,
+                (void *)XBOX_CONTEXT_PC(ep->ContextRecord), (void *)ep->ContextRecord->Rsp,
                 GetModuleHandle(NULL),
                 (void *)returns[0], (void *)returns[1], (void *)returns[2],
                 (void *)returns[3], (void *)returns[4], (void *)returns[5],
@@ -276,7 +279,7 @@ static LONG CALLBACK xbox_guest_watch_veh(PEXCEPTION_POINTERS ep)
             LONG hit = InterlockedIncrement(&s_guest_watch_hits);
             fprintf(stderr, "[GUEST-WATCH] hit=%ld guest=%08X event=%ld rip=%p "
                     "exe=%p bt%u=%p,%p,%p,%p,%p,%p,%p,%p tid=%lu\n", hit, guest,
-                    events, (void *)ep->ContextRecord->Rip, GetModuleHandle(NULL),
+                    events, (void *)XBOX_CONTEXT_PC(ep->ContextRecord), GetModuleHandle(NULL),
                     n, (void *)frames[0], (void *)frames[1], (void *)frames[2],
                     (void *)frames[3], (void *)frames[4], (void *)frames[5],
                     (void *)frames[6], (void *)frames[7], GetCurrentThreadId());
@@ -298,6 +301,11 @@ static LONG CALLBACK xbox_guest_watch_veh(PEXCEPTION_POINTERS ep)
     return EXCEPTION_CONTINUE_EXECUTION;
 }
 
+#else
+static LONG s_guest_watch_max_hits = 3, s_guest_watch_max_events = 20000;
+static volatile DWORD s_guest_watch_skip_tid;
+#endif /* _WIN32: write-watch VEHs */
+
 void xbox_DebugWatchGuestRangeEx(uint32_t lo, uint32_t len, long max_hits,
                                  long max_events)
 {
@@ -314,6 +322,11 @@ void xbox_DebugWatchGuestRangeForeign(uint32_t lo, uint32_t len, long max_hits)
 
 void xbox_DebugWatchGuestRange(uint32_t lo, uint32_t len)
 {
+#if !defined(_WIN32)
+    (void)lo; (void)len;
+    fprintf(stderr, "[GUEST-WATCH] not available on this host\n");
+}
+#else
     DWORD old;
 
     if (!len || ((lo ^ (lo + len - 1)) & ~0xFFFu) ||
@@ -333,6 +346,7 @@ void xbox_DebugWatchGuestRange(uint32_t lo, uint32_t len)
     fprintf(stderr, "[GUEST-WATCH] armed %08X..%08X\n", lo, lo + len);
     fflush(stderr);
 }
+#endif
 
 /*
  * Surface access tracking support (docs Update 492). xemu's TCG path asks to
@@ -434,6 +448,10 @@ void xbox_PrepareHostRead(const void *host, size_t len)
 
 void xbox_DebugWatchGpuPhysicalPage(uint32_t physical_address)
 {
+#if !defined(_WIN32)
+    (void)physical_address;
+}
+#else
     uint32_t page = physical_address & ~0xFFFu;
     uintptr_t tiled, contig = 0;
     DWORD old;
@@ -473,6 +491,7 @@ void xbox_DebugWatchGpuPhysicalPage(uint32_t physical_address)
             page, s_gpu_pb_watch_slot_off, (void *)tiled, (void *)contig);
     fflush(stderr);
 }
+#endif
 
 /* Contiguous / physical memory window (see MemoryLayoutInit).
  * XBOX_CONTIG_BASE / XBOX_CONTIG_SIZE come from kernel.h - the bridges need
@@ -643,6 +662,65 @@ static char s_cpu_reserve_msg[160];
 static volatile uint8_t s_guard_line[64];
 static int s_guard_mode;   /* 0 off, 1 mwaitx, 2 pause */
 
+#if !defined(_WIN32)
+/* POSIX hosts (ARM port, docs Update 677): no sibling guard, no CPU-set
+ * reservation; the guest CPU is the last of the fastest cores. */
+static void start_sibling_guard(int sibling_lp) { (void)sibling_lp; }
+
+static int guest_cpu_auto(DWORD_PTR proc)
+{
+    int best = 0;
+    long best_khz = -1;
+    for (int cpu = 0; cpu < 64; cpu++) {
+        char path[96];
+        long khz = 0;
+        FILE *f;
+        if (!(proc & ((DWORD_PTR)1 << cpu)))
+            continue;
+        snprintf(path, sizeof path,
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
+        f = fopen(path, "r");
+        if (f) {
+            if (fscanf(f, "%ld", &khz) != 1)
+                khz = 0;
+            fclose(f);
+        }
+        if (khz >= best_khz) {
+            best_khz = khz;
+            best = cpu;
+        }
+    }
+    return best;
+}
+
+/* The fast cluster of a big.LITTLE host: every CPU within 10 % of the
+ * highest maximum clock (RK3588: the A76 cores 4-7, not the A55s 0-3). */
+static DWORD_PTR big_cpu_mask(DWORD_PTR proc)
+{
+    long khz[64] = {0}, top = 0;
+    DWORD_PTR mask = 0;
+    for (int cpu = 0; cpu < 64; cpu++) {
+        char path[96];
+        FILE *f;
+        if (!(proc & ((DWORD_PTR)1 << cpu)))
+            continue;
+        snprintf(path, sizeof path,
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpu);
+        f = fopen(path, "r");
+        if (f) {
+            if (fscanf(f, "%ld", &khz[cpu]) != 1)
+                khz[cpu] = 0;
+            fclose(f);
+        }
+        if (khz[cpu] > top)
+            top = khz[cpu];
+    }
+    for (int cpu = 0; cpu < 64; cpu++)
+        if ((proc & ((DWORD_PTR)1 << cpu)) && khz[cpu] * 10 >= top * 9)
+            mask |= (DWORD_PTR)1 << cpu;
+    return mask ? mask : proc;
+}
+#else
 static DWORD WINAPI sibling_guard_thread(LPVOID param)
 {
     DWORD_PTR mask = (DWORD_PTR)param;
@@ -752,6 +830,7 @@ static int guest_cpu_auto(DWORD_PTR proc)
     free(cb);
     return guest_cpu_pick(lps, nlp, l3, nl3);
 }
+#endif /* _WIN32 */
 
 int xbox_GuestCpu(void)
 {
@@ -783,6 +862,29 @@ static void reserve_guest_physical_core(void)
     const char *e = getenv("RECOMP_RESERVE_GUEST_CORE");
     if (e && e[0] == '0')
         return;
+#if !defined(_WIN32)
+    /* POSIX: threads started from now on avoid the guest core(s), like the
+     * Windows CPU-set reservation, and on big.LITTLE hosts stay on the fast
+     * cluster (RECOMP_DEVICE_ANY_CPU=1: any other core) */
+    {
+        DWORD_PTR proc = 0, sys = 0, guest, avail;
+        const char *mask_env = getenv("RECOMP_GUEST_CPU_MASK");
+        const char *any = getenv("RECOMP_DEVICE_ANY_CPU");
+        GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys);
+        guest = (DWORD_PTR)1 << xbox_GuestCpu();
+        if (mask_env && *mask_env && strtoull(mask_env, NULL, 0))
+            guest = (DWORD_PTR)strtoull(mask_env, NULL, 0) & proc;
+        avail = ((any && any[0] == '1') ? proc : big_cpu_mask(proc)) & ~guest;
+        if (!avail)
+            avail = proc & ~guest;
+        if (avail)
+            w32_set_default_thread_affinity(avail);
+        snprintf(s_cpu_reserve_msg, sizeof(s_cpu_reserve_msg),
+                 "[CPU] guest cpus 0x%llX reserved; other threads on 0x%llX\n",
+                 (unsigned long long)guest, (unsigned long long)avail);
+    }
+    return;
+#else
     ULONG len = 0;
     GetSystemCpuSetInformation(NULL, 0, &len, GetCurrentProcess(), 0);
     if (!len)
@@ -836,6 +938,7 @@ static void reserve_guest_physical_core(void)
                          s_guard_mode == 2 ? "pause" : "off");
     free(buf);
     free(ids);
+#endif
 }
 
 void xbox_PinGuestThread(void)
@@ -846,10 +949,46 @@ void xbox_PinGuestThread(void)
     ULONG guarantee = 64 * 1024;
 
     static volatile LONG printed;
-    reserve_guest_physical_core();
-    if (s_cpu_reserve_msg[0] && InterlockedIncrement(&printed) == 2)
-        fputs(s_cpu_reserve_msg, stderr);
-    SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << xbox_GuestCpu());
+    /* RECOMP_GUEST_UNPINNED=1 (docs Update 677): guest threads run on any
+     * core, as the TGP482 port does. The heap race the pin once hid is fixed
+     * on its own; test switch for weak cores (ARM board under Box64). */
+    static int unpinned = -1;
+    if (unpinned < 0) {
+        const char *e = getenv("RECOMP_GUEST_UNPINNED");
+        unpinned = e && e[0] == '1';
+    }
+    if (unpinned) {
+        if (InterlockedIncrement(&printed) == 2)
+            fputs("[CPU] guest threads unpinned (RECOMP_GUEST_UNPINNED=1)\n",
+                  stderr);
+    } else {
+        DWORD_PTR guest_mask = (DWORD_PTR)1 << xbox_GuestCpu();
+#if !defined(_WIN32)
+        /* Opt-in for heterogeneous ARM hosts: allow the guest threads to
+         * share only selected fast cores, never the slower cluster. A single
+         * pinned CPU is still the default until gameplay A/B validates this. */
+        const char *mask_env = getenv("RECOMP_GUEST_CPU_MASK");
+        if (mask_env && *mask_env) {
+            char *end;
+            unsigned long long requested = strtoull(mask_env, &end, 0);
+            DWORD_PTR proc = 0, sys = 0;
+            if (end != mask_env && !*end && requested &&
+                GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys) &&
+                ((DWORD_PTR)requested & proc))
+                guest_mask = (DWORD_PTR)requested & proc;
+        }
+#endif
+        reserve_guest_physical_core();
+        if (InterlockedIncrement(&printed) == 2) {
+            if (s_cpu_reserve_msg[0])
+                fputs(s_cpu_reserve_msg, stderr);
+#if !defined(_WIN32)
+            fprintf(stderr, "[CPU] guest affinity mask 0x%llX\n",
+                    (unsigned long long)guest_mask);
+#endif
+        }
+        SetThreadAffinityMask(GetCurrentThread(), guest_mask);
+    }
     SetThreadStackGuarantee(&guarantee);
     /* Known to the async interrupt injector (kernel_bridge.c). */
     xbox_irq_register_guest_thread();
@@ -859,8 +998,28 @@ void xbox_PinDeviceThread(void *h)
 {
     DWORD_PTR proc = 0, sys = 0;
 
-    if (h && GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys)
-            && (proc & ~((DWORD_PTR)1 << xbox_GuestCpu())))
+    if (!h || !GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys))
+        return;
+#if !defined(_WIN32)
+    /* big.LITTLE (ARM port): the device threads (PFIFO/renderer, APU,
+     * window) on the fast cores next to the guest's, not on the slow
+     * cluster; RECOMP_DEVICE_ANY_CPU=1 allows every other core again */
+    {
+        static int any = -1;
+        if (any < 0) {
+            const char *e = getenv("RECOMP_DEVICE_ANY_CPU");
+            any = e && e[0] == '1';
+        }
+        if (!any) {
+            DWORD_PTR fast = big_cpu_mask(proc) & ~((DWORD_PTR)1 << xbox_GuestCpu());
+            if (fast) {
+                SetThreadAffinityMask((HANDLE)h, fast);
+                return;
+            }
+        }
+    }
+#endif
+    if (proc & ~((DWORD_PTR)1 << xbox_GuestCpu()))
         SetThreadAffinityMask((HANDLE)h, proc & ~((DWORD_PTR)1 << xbox_GuestCpu()));
 }
 
@@ -1096,8 +1255,8 @@ static LONG CALLBACK apu_mmio_veh(PEXCEPTION_POINTERS ep)
         if (veh_trace && InterlockedIncrement(&traced) <= 40) {
             HMODULE mod = GetModuleHandleA(NULL);
             fprintf(stderr, "[VEH-AV] tid=%lu rip=%p (exe+0x%llX) %s 0x%llX\n",
-                    GetCurrentThreadId(), (void *)ep->ContextRecord->Rip,
-                    (unsigned long long)(ep->ContextRecord->Rip - (uintptr_t)mod),
+                    GetCurrentThreadId(), (void *)XBOX_CONTEXT_PC(ep->ContextRecord),
+                    (unsigned long long)(XBOX_CONTEXT_PC(ep->ContextRecord) - (uintptr_t)mod),
                     er->ExceptionInformation[0] == 1 ? "write" : "read",
                     (unsigned long long)fault);
             fflush(stderr);
@@ -1112,7 +1271,7 @@ static LONG CALLBACK apu_mmio_veh(PEXCEPTION_POINTERS ep)
         /* Not decodable: this becomes an unhandled crash, so say where. */
         static volatile LONG undecoded;
         if (InterlockedIncrement(&undecoded) <= 20) {
-            const uint8_t *ip = (const uint8_t *)ep->ContextRecord->Rip;
+            const uint8_t *ip = (const uint8_t *)XBOX_CONTEXT_PC(ep->ContextRecord);
             fprintf(stderr, "[APU-VEH] undecoded %s at APU+0x%05llX, rip=%p "
                     "bytes %02X %02X %02X %02X %02X %02X\n",
                     er->ExceptionInformation[0] == 1 ? "write" : "read",
@@ -1895,12 +2054,39 @@ RECOMP_TLS int g_df = 0;
  * built after 1998. */
 RECOMP_TLS uint32_t g_eflags = 0x00200202u;
 
+#if !(defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86))
+/* The guest MXCSR on hosts without SSE (ARM port, docs Update 677): its
+ * rounding field drives recomp_cvt_rc in recomp_types.h. */
+RECOMP_TLS uint32_t g_recomp_mxcsr = 0x1F80u;
+#endif
+
 void recomp_cpuid(uint32_t leaf, uint32_t subleaf,
                    uint32_t *out_eax, uint32_t *out_ebx,
                    uint32_t *out_ecx, uint32_t *out_edx)
 {
     int regs[4] = {0, 0, 0, 0};
+#if defined(_MSC_VER)
     __cpuidex(regs, (int)leaf, (int)subleaf);
+#elif defined(__x86_64__) || defined(__i386__)
+    __cpuid_count(leaf, subleaf, regs[0], regs[1], regs[2], regs[3]);
+#else
+    /* No host CPUID (ARM port, docs Update 677): answer as the Xbox's own
+     * Pentium III-class CPU (GenuineIntel, family 6 model 8 stepping 0xA,
+     * FPU/TSC/CX8/CMOV/MMX/FXSR/SSE). */
+    (void)subleaf;
+    if (leaf == 0) {
+        regs[0] = 2;
+        regs[1] = 0x756E6547;   /* "Genu" */
+        regs[3] = 0x49656E69;   /* "ineI" */
+        regs[2] = 0x6C65746E;   /* "ntel" */
+    } else if (leaf == 1) {
+        regs[0] = 0x0000068A;
+        regs[3] = 0x0383F9FF;
+    } else if (leaf == 2) {
+        regs[0] = 0x03020101;
+        regs[3] = 0x0C040882;
+    }
+#endif
     *out_eax = (uint32_t)regs[0];
     *out_ebx = (uint32_t)regs[1];
     *out_ecx = (uint32_t)regs[2];
@@ -2078,6 +2264,9 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
         static const uintptr_t try_bases[] = {
             0x0000700000000000ull, /* high, clear of every low Xbox/Windows
                                      * reservation for the full 4 GB mirror range */
+            0x0000001000000000ull, /* 64 GB: the same, for a 39-bit address
+                                     * space (Wine/Box64 on ARM, docs Update 675),
+                                     * where Box64 also holds 0x7F000000-0x82000000 */
             XBOX_BASE_ADDRESS,      /* 0x00010000 - original Xbox address */
             0x00800000,             /* 8 MB - above typical PEB/TEB region */
             0x01000000,             /* 16 MB */

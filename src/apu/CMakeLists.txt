@@ -12,8 +12,16 @@ add_library(xbox_apu STATIC
     apu_mmio_hook.c
     apu_xaudio2.c
     apu_surround.c
-    apu_passthrough.c
 )
+if(WIN32)
+    # WASAPI exclusive-mode Dolby Digital passthrough
+    target_sources(xbox_apu PRIVATE apu_passthrough.c)
+else()
+    target_sources(xbox_apu PRIVATE apu_passthrough_stub.c)
+    # SDL2 audio output (apu_xaudio2.c, ARM port, docs Update 677)
+    find_package(SDL2 REQUIRED)
+    target_link_libraries(xbox_apu PUBLIC SDL2::SDL2)
+endif()
 
 target_include_directories(xbox_apu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -111,6 +119,9 @@ if(MSVC)
     target_compile_options(xbox_apu_dspjit PRIVATE /W3 /wd4244 /wd4267 /wd4146
         "/FI${CMAKE_CURRENT_SOURCE_DIR}/dsp_jit/dspjit_rename.h")
     target_compile_definitions(xbox_apu_dspjit PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(xbox_apu_dspjit PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/dsp_jit/dspjit_rename.h")
 endif()
 
 add_library(xbox_a52 STATIC

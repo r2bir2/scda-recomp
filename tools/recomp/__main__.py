@@ -204,13 +204,16 @@ def main():
                              "hand-written definition links instead")
     parser.add_argument("--exclude-manual", metavar="FILE",
                         nargs="?", const="src/game/recomp/recomp_manual.c",
+                        action="append",
                         help="Scan a C file (default recomp_manual.c) for the "
                              "functions it defines by hand and skip generating "
                              "their bodies -- the same effect as listing them in "
                              "--manual-functions, but read straight from the "
                              "source of truth so the two cannot drift. Handles "
                              "sub_X_gen wrappers and pins referenced sub_ names. "
-                             "Ported from the Burnout 3 fork.")
+                             "Ported from the Burnout 3 fork. May be given "
+                             "several times (e.g. recomp_manual.c and the HLE "
+                             "renderer's wrapper file).")
     parser.add_argument("--trace-functions", metavar="FILE",
                         help="JSON list of addresses to emit an entry trace "
                              "for (RECOMP_TRACE_ENTER). For bring-up: shows "
@@ -401,7 +404,16 @@ def main():
         # -- so the translator needs no changes.
         if args.exclude_manual:
             from .manual_scan import scan as _scan_manual
-            skip, wrap, referenced = _scan_manual(args.exclude_manual)
+            skip, wrap, referenced = set(), set(), set()
+            for manual_path in args.exclude_manual:
+                s, w, r = _scan_manual(manual_path)
+                both = (s & skip) | (w & wrap)
+                if both:
+                    raise SystemExit("--exclude-manual: defined in more than one "
+                                     "file: " + ", ".join(f"sub_{a:08X}" for a in sorted(both)))
+                skip |= s
+                wrap |= w
+                referenced |= r
             known = set(translator.func_db)
 
             # referenced-but-not-wrapped: the hand-written code names these as
@@ -427,7 +439,7 @@ def main():
             newly = {a for a in (skip - wrap) if a in known} - manual
             manual |= newly
             print(f"Excluding {len(newly)} functions defined in "
-                  f"{args.exclude_manual}"
+                  f"{', '.join(args.exclude_manual)}"
                   + (f"; {pinned} pinned to sub_ names" if pinned else "")
                   + (f"; {len(wrap & known)} wrapped as sub_X_gen" if wrap else ""),
                   file=sys.stderr)

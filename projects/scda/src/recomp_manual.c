@@ -2341,15 +2341,71 @@ static void scda_present_interval_wrapper(void)
     }
 }
 
+/* HQ night-vision interference, picture and sound (docs Updates 663-664).
+ * 0xCA9B8 calls these two only with night vision on in a level flagged for
+ * it, x05_hq2_r (HQ 1); other levels never run them. sub_001F8D00 rates the
+ * distortion (+0x3B8) from nearby listed light actors (LevelInfo
+ * +0x700/+0x704, NV_HQ_* radii and strengths); sub_001F8F9C turns it into
+ * the flickering static (+0x3BC) and, past the midpoint of NV_HQ_Min/Max,
+ * plays LevelInfo +0x5AC = Play_multi_goggle_interference. Patching the
+ * level file breaks loading (XBE hack, 13.09.). RECOMP_NV_INTERFERENCE=0
+ * (option NightVisionInterference = 0) skips both (thiscall, one arg,
+ * `ret 4`); sub_001F8F9C still stores its quiet value 1.0 (Update 665). */
+static int scda_nv_interference_off(void)
+{
+    static int off = -1;
+    if (off < 0) {
+        const char *e = getenv("RECOMP_NV_INTERFERENCE");
+        off = e && e[0] == '0';
+        if (off)
+            fprintf(stderr, "[SCDA-NV] HQ night-vision interference off\n");
+    }
+    return off;
+}
+
+extern void sub_001F8D00_gen(void);
+void sub_001F8D00(void)
+{
+    if (scda_nv_interference_off()) {
+        g_esp += 8u;                  /* ret 4: return address + arg */
+        return;
+    }
+    sub_001F8D00_gen();
+}
+
+extern void sub_001F8F9C_gen(void);
+void sub_001F8F9C(void)
+{
+    if (scda_nv_interference_off()) {
+        /* its quiet branch (0x1F904D): +0x3BC = 1.0. The renderer draws the
+         * interference (rolling bars, static) whenever the value it gets
+         * via 0x2B2CB7 -> +0x4C8 is not 1.0 (0x2F184F), so 0 is not "off". */
+        if (g_ecx && g_ecx < 0x04000000u)
+            MEM32(g_ecx + 0x3BCu) = 0x3F800000u;
+        g_esp += 8u;
+        return;
+    }
+    sub_001F8F9C_gen();
+}
+
 /* D3D swap entry (both output paths read 0x4AB5CC every frame to program
  * the vblank wait; co-op takes sub_0049CB00, not sub_0049C910): with
  * 60 FPS wanted, interval TWO becomes ONE (2 -> 1, 0x80000002 ->
  * 0x80000001), the IPS's change for every path that sets the interval. */
 extern void sub_0049CC50_gen(void);
+extern int hle_d3d_swap(void);      /* hle_d3d.c: the HLE renderer's swap */
+extern int hle_d3d_enabled(void);
 void sub_0049CC50(void)
 {
     uint32_t v = MEM32(0x004AB5CCu);
     static uint32_t last_seen = 0xFFFFFFFFu;
+    if (hle_d3d_enabled()) {
+        /* the same 60 FPS interval change, then the HLE swap paces by it */
+        if ((v & 0x7FFFFFFFu) == 2u && scda_want_60fps())
+            MEM32(0x004AB5CCu) = v - 1u;
+        if (hle_d3d_swap())
+            return;
+    }
     static int seen_logs;
     if (v != last_seen && seen_logs < 8) {
         seen_logs++;

@@ -57,7 +57,6 @@ add_library(xbox_gpu STATIC
     ${XEMU}/subprojects/nv2a_vsh_cpu/nv2a_vsh_emulator.c
     ${XEMU}/subprojects/nv2a_vsh_cpu/nv2a_vsh_emulator_execution_state.c
     # Local glue
-    gloffscreen_wgl.c
     gl_loader.c
     nv2a_recomp.c
 )
@@ -86,8 +85,18 @@ endif()
 set_source_files_properties(${XEMU}/util/fast-hash.c PROPERTIES
     COMPILE_DEFINITIONS XXH_INLINE_ALL)
 
-# Synchronization: WaitOnAddress for the PFIFO kick (pfifo.c, docs Update 643).
-target_link_libraries(xbox_gpu PRIVATE opengl32 gdi32 user32 Synchronization)
+if(WIN32)
+    target_sources(xbox_gpu PRIVATE gloffscreen_wgl.c)
+    # Synchronization: WaitOnAddress for the PFIFO kick (pfifo.c, docs Update 643).
+    target_link_libraries(xbox_gpu PRIVATE opengl32 gdi32 user32 Synchronization)
+else()
+    # Linux (ARM port, docs Update 677): EGL contexts, X11 window surfaces
+    target_sources(xbox_gpu PRIVATE gloffscreen_egl.c)
+    target_link_libraries(xbox_gpu PRIVATE EGL X11 m)
+    target_compile_options(xbox_gpu PRIVATE -Werror=implicit-function-declaration
+                           -Werror=int-conversion)
+    target_link_libraries(xbox_gpu PUBLIC platform)
+endif()
 
 # ── Vulkan renderer (xemu pgraph/vk), selected at runtime with
 # RECOMP_RENDERER=vulkan; OpenGL stays the default. Everything it needs is
@@ -98,7 +107,7 @@ target_link_libraries(xbox_gpu PRIVATE opengl32 gdi32 user32 Synchronization)
 # made from glslang.def and delay-loaded, so the OpenGL path starts even
 # without its DLLs next to the executable.
 option(XBOX_GPU_VULKAN "Build the Vulkan NV2A renderer" ON)
-if(XBOX_GPU_VULKAN AND MSVC)
+if(XBOX_GPU_VULKAN)
     enable_language(CXX)
     set(TP ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty)
     target_sources(xbox_gpu PRIVATE
@@ -129,21 +138,33 @@ if(XBOX_GPU_VULKAN AND MSVC)
         ${TP}/volk
         ${TP}/VulkanMemoryAllocator/include)
     target_compile_definitions(xbox_gpu_vma PRIVATE
-        VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR
+        VK_NO_PROTOTYPES
         VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
-    target_compile_options(xbox_gpu_vma PRIVATE /std:c++17 /W0)
     target_link_libraries(xbox_gpu PRIVATE xbox_gpu_vma)
     target_include_directories(xbox_gpu PRIVATE
         ${TP}/Vulkan-Headers/include
-        ${TP}/glslang/include
         ${TP}/volk
         ${TP}/VulkanMemoryAllocator/include
         ${TP}/SPIRV-Reflect
     )
     target_compile_definitions(xbox_gpu PRIVATE
-        XBOX_GPU_VULKAN=1 WIN32
-        VK_NO_PROTOTYPES VK_USE_PLATFORM_WIN32_KHR
+        XBOX_GPU_VULKAN=1
+        VK_NO_PROTOTYPES
         VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
+    if(NOT MSVC)
+        # Linux (ARM port, docs Update 677): the distribution's glslang
+        # (static, C interface) instead of the vendored MinGW DLL build;
+        # volk loads libvulkan.so.1 at runtime.
+        target_compile_options(xbox_gpu_vma PRIVATE -std=c++17 -w)
+        target_link_libraries(xbox_gpu PUBLIC
+            glslang glslang-default-resource-limits SPIRV
+            SPIRV-Tools-opt SPIRV-Tools stdc++ dl pthread)
+        return()
+    endif()
+    target_compile_definitions(xbox_gpu_vma PRIVATE VK_USE_PLATFORM_WIN32_KHR)
+    target_compile_options(xbox_gpu_vma PRIVATE /std:c++17 /W0)
+    target_include_directories(xbox_gpu PRIVATE ${TP}/glslang/include)
+    target_compile_definitions(xbox_gpu PRIVATE WIN32 VK_USE_PLATFORM_WIN32_KHR)
     set_source_files_properties(
         ${TP}/volk/volk.c ${TP}/SPIRV-Reflect/spirv_reflect.c
         PROPERTIES COMPILE_OPTIONS "/W0")

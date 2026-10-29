@@ -68,6 +68,13 @@ int dsp56300_dll_load(void)
     if (state >= 0)
         return state;
     state = 0;
+#if !defined(_WIN32)
+    /* no Linux build of the JIT core yet (ARM port, docs Update 677): the
+     * surround path stays off and stereo uses the interpreter-free mix */
+    (void)mod; (void)path; (void)n;
+    fprintf(stderr, "[APU-SURROUND] no DSP56300 JIT core on this host\n");
+    return 0;
+#endif
 
     /* Only the executable's own directory, never the search path. */
     n = GetModuleFileNameW(NULL, path, MAX_PATH);

@@ -27,6 +27,7 @@ set(KERNEL_SOURCES
     nv2a_pb_exec.c
     vsh_interp.c
     mmio_decode.c
+    mmio_decode_arm64.c
     mcpx_aci.c
 )
 

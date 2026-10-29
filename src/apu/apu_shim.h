@@ -151,7 +151,10 @@ static inline void stb_phys(void *as, hwaddr addr, uint8_t val) {
 
 /* Stub address space - just passed to ldl_le_phys etc. (ignored) */
 static int address_space_memory_dummy;
-#define address_space_memory (&address_space_memory_dummy)
+/* a real pointer variable, so both "address_space_memory" and
+ * "&address_space_memory" compile with gcc too (MSVC took &(&x); ARM port) */
+static int *const address_space_memory_ptr = &address_space_memory_dummy;
+#define address_space_memory address_space_memory_ptr
 
 /* Xbox page size */
 #ifndef TARGET_PAGE_SIZE

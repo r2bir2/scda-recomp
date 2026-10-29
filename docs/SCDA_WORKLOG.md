@@ -38761,3 +38761,588 @@ veroeffentlicht):
   frei). Kuenftig weniger Bilder und sofort ausduennen.
 - Build kanonisch 2026-10-13 11:53:27, SHA-256
   `099bbe8170f0bc8c5007ba883674e0b1e0d0a0799be3c0651ca56e76fbc7592b`.
+
+## Update 661 -- Quellcode privat auf GitHub (13.10.2026)
+
+- Nutzer-Repo `https://github.com/r2bir2/scda-recomp` (privat). Hochgeladen wird NICHT dieser
+  Arbeitsordner (lokale Historie enthaelt `references/pcversion/dynamic-pc.umd`, Ordner voller
+  Spieldaten/Saves/Schluessel-Kopien), sondern ein sauberer Export:
+  `py -3 projects\scda\release\export_source.py` -> `C:\VScode\SCDA_Recomp_source` (Allow-List aus
+  getrackten und nicht ignorierten Dateien; ohne *.xbe/*.iso/*.umd/*.sav/Keys/Logs/Ausgaben/.vs;
+  mit glslang-/MinGW-DLLs und dsp56300.dll; neue README.md aus `repo_README.md`, `.gitignore` aus
+  `repo_gitignore`; Abschluss-Scan auf verbotene Dateitypen, >50 MB und die Konsolenschluessel-Bytes).
+  Ergebnis: 923 Dateien, 53,5 MB, Scan sauber, keine E-Mail-Adresse enthalten.
+- Neue Git-Historie im Export (Autor r2bir2 / r2bir2@users.noreply.github.com), auf GitHubs
+  "Initial commit" (Auto-README) rebased, ohne Force-Push hochgeladen: `e380f87..3f189d5`.
+- Release-ZIP laedt der Nutzer ueber die GitHub-Weboberflaeche hoch (gh CLI nicht installiert).
+- Nachtrag: Spielstand-Anleitung fuer xemu/Konsole. Neuer Ordner `tools/saves/` (Kopien von
+  xemu_read_kernel_keys.py + xemu_anim_channels.py, xemu_hdd_fatx_ls.py, xemu_hdd_fatx_put.py,
+  xbox_resign_saves.py) mit `README.md`; Kurzfassung in der Release-README.txt und Verweis in der
+  GitHub-README. Release-ZIP neu (SHA-256 `7ec9dd82...`), GitHub `b9adb8c..798adfa`, Schluessel-Scan
+  sauber. README-Commit davor: `3f189d5..b9adb8c` (Spieler-Hinweis oben).
+- Nachtrag: Auf Wunsch des Betroffenen Namensnennung zum frueheren 60-FPS-Patch entfernt (beide
+  READMEs, Kommentar in recomp_manual.c neutral formuliert). GitHub-Historie danach auf einen
+  einzigen Commit zusammengefasst und per Force-Push ersetzt: `75caec6` ist jetzt der einzige Commit;
+  lokale Altobjekte per reflog expire + gc entfernt, Pruefung: Name in keinem Commit. Release-ZIP neu
+  (SHA-256 `5ff600e6...`).
+- Nachtrag: redump.org kennt fuer SCDA (Original-Xbox) nur eine Disc, Nr. 21482, Serial US-094,
+  Region "USA, Europe", Sprachen EN/FR/DE/IT/ES (Redump-Image 7.825.162.240 Bytes). Texte (beide
+  READMEs, gamefiles-Hinweis, Versionsmeldung in scda_layout.c) auf "USA/Europe disc, US-094"
+  umgestellt. Build 2026-10-13, SHA-256 `bc98a263...`, kurzer Starttest im Release-Layout ok;
+  ZIP SHA-256 `173a0b9c...`; GitHub `40bfc90..4b24759`.
+- Nachtrag: GitHub-Historie fuer lesbare Ordnerbeschreibungen in 31 thematische Commits aufgeteilt
+  (Lizenzen, Runtime-Teile, Werkzeuge, SCDA-Projekt, Doku, README), Inhalt identisch; Force-Push
+  `4b24759...ac78cac`, Tag `v1.0` (Release des Nutzers) von `18a70ba` auf `ac78cac` umgesetzt.
+
+## Update 662 -- AudioDevice fuer alle Tonarten, Schluesselwoerter hdmi/spdif (13.10.2026)
+
+- Befund: RECOMP_AUDIO_DEVICE wirkte nur im Dolby-Digital-Passthrough (Surround = 1); Stereo und
+  PCM-5.1 liefen immer ueber das Windows-Standardgeraet (XAudio2 CreateMasteringVoice ohne Geraete-ID),
+  der Namensvergleich war gross/klein-sensitiv. Doku sagte "Output device" allgemein.
+- Neu (apu_passthrough.c): pick_device erkennt `hdmi` (Form-Faktor DigitalAudioDisplayDevice oder
+  "HDMI" im Namen), `spdif`/`s/pdif`/`toslink`/`optical`/`coax`/`digital` (Form-Faktor SPDIF bzw.
+  digital passthrough oder passende Namensteile), sonst Namensteil ohne Gross/Klein; listet alle
+  aktiven Ausgaenge als `[AUDIO] output n: <Name> (<Typ>)` ins Log. `apu_output_device_id()` liefert
+  die Endpunkt-ID; apu_xaudio2.c uebergibt sie an CreateMasteringVoice (Rueckfall auf Standard bei
+  Fehler). Vorlage scda_options.c und beide READMEs erklaeren die Werte und dass S/PDIF/Toslink 5.1
+  nur als Dolby Digital transportieren.
+- Test (release_test2, stumm): leer -> Liste + Standard; `spdif` -> "Digitalaudio (S/PDIF)" gewaehlt,
+  XAudio2 startet darauf; `hdmi` und `xyz` -> "no output matches", Standard. Build SHA-256
+  `2b1cb316...`, ZIP SHA-256 `31c9a02f...`. GitHub noch NICHT aktualisiert (wartet auf Nutzer-OK).
+
+## Update 663 -- HQ-Nachtsicht-Stoergeraeusch abschaltbar (15.10.2026)
+
+- Wunsch: das Knistern der Nachtsicht im JBA-HQ (x05_hq2_r) entfernen. Ein Patch der Level-Datei
+  bricht das Laden (13.09., XBE-Hack), daher Filter beim Abspielen.
+- Namen: Sound-Objekte tragen bei +0x20 den 32-Bit-Namenshash der Engine (sub_0005EF6E: CRC ueber
+  den UTF-16-Text in Grossbuchstaben, Tabelle Polynom 0x04C11DB7, Init 0; "None" = 0x09AD2622
+  stimmt mit der Engine-Konstante). `Play_multi_goggle_interference` = 0x6DAF3C4A; die Zeichenketten-
+  Tabelle bei 0x62A4BC enthaelt Hashes, keinen Text.
+- Ausloeser (statisch, capstone): 0xCA9B8 ruft bei Sichtmodus 0xB (Nachtsicht) und Level-Flag
+  sub_001F8D00 (Stoerstaerke +0x3B8: Lichtquellen-Liste LevelInfo +0x700/+0x704, Radien
+  +0x3E4/+0x3E8 = 75/250, Staerke +0x3EC/+0x3F0 = 0.1/0.5, Sichtpruefung per vfunc+0xD4) und
+  sub_001F8F9C (flackernder Bildanteil +0x3BC; ueber der Mitte von Min/Max und nicht schon
+  spielend (Audio vfunc+0x7C = 0x2D961E) -> Audio vfunc+0x78 = 0x2DED08 mit LevelInfo +0x5AC).
+  Laufzeit-Speichersuche bestaetigt: LevelInfo0 (Hash 0xDB2E34C4) +0x5AC -> Objekt mit Hash 6DAF3C4A.
+- Umsetzung (recomp_manual.c): `recomp_lookup_manual` liefert vor dem Memo fuer die Audio-Methoden
+  0x2DED08 (`ret 0x1C`, 7 Args) und 0x2DA6FD (LaunchSoundEvent, `ret 0xC`, 3 Args) einen Wrapper;
+  beide werden nur indirekt aufgerufen (keine Direktaufrufe im erzeugten Code). Bei Hash 6DAF3C4A:
+  eax = 0, Args abraeumen, Original nicht rufen. Nur aktiv mit `RECOMP_NV_INTERFERENCE_SOUND=0`
+  (Option `NightVisionInterference`, Vorlage 0 = aus; fehlt die Zeile = wie Xbox) oder
+  `RECOMP_SOUND_TRACE=1` (jeder neue Hash `[SOUND] ...`). Erster Versuch per Aufrufstelle
+  (0x27386A/0x278639) verfehlte die vielen vtable-Aufrufer; der Umweg `sub_00273832_gen` ist wieder
+  entfernt, erzeugter Code aus `tools/recomp/output/scda_v060_pre663_backup` byte-gleich zurueck.
+- Teststeuerung: Nachtsicht = Steuerkreuz LINKS (`SwitchHeadset -1`), rechts = Waermesicht.
+  `nv_sound6`-`10`: Nachtsicht an der Startposition loest nichts aus (Stelle 0x1F90A4 nie erreicht).
+  `nv_sound11` (LEFT + Laufen 54-87 s): `[SOUND] hash 6DAF3C4A ... = Play_multi_goggle_interference`,
+  `[SCDA-NV] HQ interference sound skipped`. `nv_sound12` nur per frisch geschriebener
+  scda_options.txt (Standard 0), ohne Testschalter: ebenfalls uebersprungen. Kein Absturz.
+- Build 22:38 SHA-256 `1eae7ac7e9cd52778d144614a51e56941d0f677a27af0c3cf4596fbe55a87fa9`. Nutzer-
+  scda_options.txt um `NightVisionInterference = 0` ergaenzt (Sicherung
+  `scratchpad/scda_options_before_nv_20261015.txt`), READMEs ergaenzt. Bildstoerung (+0x3BC) noch
+  unveraendert; Hoertest durch Nutzer offen; GitHub/Release-ZIP nicht aktualisiert.
+
+## Update 664 -- HQ-Nachtsicht-Stoerung komplett abschaltbar, Bild und Ton (16.10.2026)
+
+- Nutzer nach Update 663: Geraeusch weg, Bildstoerung soll wie in den anderen Missionen sein.
+- Umsetzung: `_gen`-Wrapper `sub_001F8D00` (Stoerstaerke) und `sub_001F8F9C` (Flackern +0x3BC,
+  Geraeuschstart) in recomp_manual.c; bei `RECOMP_NV_INTERFERENCE=0` (Option
+  `NightVisionInterference = 0`, Vorlage 0) beide uebersprungen (thiscall, 1 Arg, `ret 4` ->
+  `g_esp += 8`). Andere Level rufen beide nie (0xCA9B8: Sichtmodus 0xB + Level-Flag), daher
+  bleiben die Brillenfelder wie dort. Der Hash-Filter aus Update 663 (lookup-Hook 0x2DED08/
+  0x2DA6FD, RECOMP_SOUND_TRACE) ist entfernt -- ueberfluessig, da nur sub_001F8F9C das Geraeusch
+  startet.
+- Regen (1:27 min, `--exclude-manual`, Flags wie Update 663) nach `tools/recomp/output/scda_v060_nv2`;
+  Unterschied nur die zwei Umbenennungen in recomp_0011.c/recomp_funcs.h, uebernommen
+  (Sicherung `scda_v060_pre664_backup`).
+- Test A/B gleiche Laufstrecke (LEFT + Laufen), Rauschmass = mittlere Nachbarpixel-Differenz:
+  `nv_vis_on` Bilder 53-71 verrauscht (bis 7,3, Bild 60 volles Rauschbild), Geraeusch angefordert;
+  `nv_vis_off` (Env) 0/108 (max 2,8), kein Geraeusch; `nv_vis_opt` (nur Optionsdatei) 0/109
+  (max 2,6). Helle Ueberstrahlung nahe Lampen bleibt (normale Nachtsicht). Kein Absturz.
+- Build 10:44 SHA-256 `294c4b65b7bdb81601b2103fff71b2eefa6a3a55f7c816f422121575b306b1ed`.
+  Optionstext (Vorlage, Nutzerdatei, beide READMEs) nennt Bild und Ton. GitHub/Release-ZIP offen.
+
+## Update 665 -- HQ-Nachtsicht: Rollbalken/Koernung mit ausgeschalteter Stoerung behoben (16.10.2026)
+
+- Nutzer nach 664 (Screenshot HQ-Aussenbereich): Rauschbild weg, aber zwei dunkle Querbalken laufen
+  von unten nach oben durch; dazu leichte Koernung. Nachgestellt mit dem Nutzer-Schnellspeicherstand
+  (`scratchpad/bloom_20261009/hq_nv_quicksave_20261016_launch.bin`, startet x05_hq2_r) + LEFT bei 100 s.
+- Ursache (statisch + Trace): 0x2B2CB7 reicht Brillenfeld +0x3BC per vfunc+0x224 (0x2F5E4B) an den
+  Renderer (+0x4C8). Der Renderer (0x2F184F) zeichnet den Stoereffekt, wenn der Wert NICHT 1.0 ist
+  (fucompp/test ah,0x44/jnp). sub_001F8F9C schreibt im ruhigen Fall 1.0 (0x1F904D), nur in
+  Flackerphasen Staerke*Faktor. Der 664-Skip liess den Wert auf 0.0 -> Effekt dauerhaft mit
+  Staerke 0 = Balken + Koernung. Diagnose `[NV-DIST]` (temporaer, entfernt): 0.000000 vor dem Fix.
+- Fix: Wrapper sub_001F8F9C schreibt bei ausgeschalteter Stoerung +0x3BC = 1.0 (Wert des
+  Original-Ruhezweigs), sonst weiterhin uebersprungen. `[NV-DIST]` danach 1.000000.
+- Test (stumm, Nutzer-Speicherstand, nur Optionsdatei): nv_dist2/nv_final665 Bilder 230-245 ohne
+  Balken/Koernung; kein Absturz. Build 13:25 SHA-256
+  `345274277c802754b4b0003bd8cc455e7f4db8e4f498f79cf79dba700e90a1d6`.
+- Nachtrag 18.10.: Alle 31 Level-LINs entpackt und durchsucht (`scratchpad/scan_lin_nv.py`, nutzt
+  `read_blocks` des XBE-Hack-Patchtools): `Sound_HQ_Distortion` + `Play_multi_goggle_interference`
+  nur in x05_hq2_r UND x11_hq5_r (zweiter HQ-Besuch); `NV_HQ_*` stehen in jedem Level (Klassen-
+  Standardwerte, laufen aber nur bei gesetztem Level-Flag). Der Schalter wirkt global im Code
+  (sub_001F8D00/sub_001F8F9C), deckt also beide HQ-Level ab; x11 zur Laufzeit nicht getestet
+  (kein Speicherstand). Optionstext jetzt "both JBA headquarters levels". Build 14:59 SHA-256
+  `6ba64e6726a9198a96392632d22d5175a94f5827d144063179cf6b568b116b47`; Release-ZIP
+  `release/SCDA_Recomp_v1.1.zip` (36 MB, SHA-256 `3e1cde7a...`, enthaelt auch Update 662), geprueft:
+  keine Keys/Spieldaten. GitHub nicht aktualisiert.
+
+## Untersuchung 18.10.2026 -- Island (Spielstand 1): Zittern des roten Glow-Saums am Eisbrocken
+
+- Nutzer: Saum um den runden Eisbrocken (x01_Iceland_a, rote Notbeleuchtung) zittert bei leichter
+  Kamerabewegung, im Stillstand nicht. Nutzertests: bleibt bei RenderScale 1, BloomSmoothing 0 und
+  FPS60 = 0.
+- Repro automatisiert: Startseite `scratchpad/ice_20261018/iceland_slot1_launch.bin` (vom Spiel
+  geschriebene launch_data_last.bin, 18.10. 15:36), Eingabe `25..40=A` (Steuerungsbildschirm),
+  `56..71=RSLEFT/RSRIGHT:60`, `RECOMP_TRACE_BURST_AT=58`; Bildausschnitte mit
+  `scratchpad/ice_20261018/bmpgrid.py`.
+- Draw-Trace (ice_trace1, Frame 1899 ff.): Saum = eigene Glow-Kette. #298 zeichnet die Saum-Huelle
+  mit Weltmatrix in ein 256x256-Ziel (05872000, Textur 05745000 640x480 linear), dann Unschaerfe
+  05872000 -> 058B2000(128) -> 058C2000(64) -> 058C6000(32) und Einblenden (#303/#305, n=210 =
+  Eisbrocken). Glow- und Eisbrocken-Matrix sind in jedem Frame identisch (kein Frame-Versatz).
+- Ausgeschlossen: Textur-Schnellpfad (`RECOMP_VK_TEXTURE_CLEAN_FAST_VERIFY=1`: 0 Fehlvergleiche;
+  `=0`: gleiches Bild), Hochskalierung (bei Scale 1 laeuft alles nativ, native_small_target greift
+  nur > 1x), Bloom-Prefilter, 60 FPS.
+- Arbeitshypothese: Original-Verhalten -- Saum in 256x256 gerastert und bis 32x32 weichgezeichnet,
+  springt bei Bewegung in groben Texelschritten. Offen: xemu-Gegenprobe; moegliche kosmetische
+  Verbesserung = Glow-Kette hoeher aufgeloest rendern (Aussehen der 1-Texel-Taps beachten).
+
+## Update 666 -- Kleine Renderziele beim Hochskalieren supersampled (Glow-Saum Island) (18.10.2026)
+
+- Nutzerwunsch nach der Untersuchung oben: Glow-Saum glatter machen.
+- texture.c: `small_target_supersample()` -- native Kopie eines kleinen hochskalierten Renderziels
+  (native_small_target, <= 256, swizzled) jetzt per exakten 2:1-LINEAR-Halbierungen + einem
+  LINEAR-Schritt gemittelt statt ein Texel je Gastpixel (660). Zeile/Spalte 0 weiterhin NEAREST
+  aus dem bedeckten Texel (i+0.5)*s (660-Randfall: oben/links unbeschrieben). Schreibvorgaenge in die
+  Textur disjunkt (Innen 1:1 aus Mittelwert, Spalte 0, Zeile 0 ohne Ecke). Eigene Scratch-Bilder je
+  Groesse (bis 32). `RECOMP_VK_NATIVE_SMALL_SS=0` = alter Weg. Log einmalig
+  `[VK] small render targets: supersampled native copy (256x256 from 768x768)`.
+- Wirkt nur bei RenderScale > 1 (bei 1 gibt es keine feinere Information).
+- Test: Build ok; ice3x_chk (Scale 3, Spielstand 1) Pfad aktiv, keine Vulkan-Fehler/Abstuerze.
+  Standbild-Messung (zweite Ableitung ueber die Zeit) unterscheidet ss/alt kaum (Bildbewegung
+  dominiert) -> Bewertung in Bewegung durch Nutzer. Starter `start_spielstand1.bat` +
+  `launch_spielstand1.bin` im kanonischen Bin-Ordner (laedt Spielstand 1 / Island).
+
+## Update 667 -- Kantenglaettung (FXAA) nur bei RenderScale > 1 (18.10.2026)
+
+- Nutzer: RenderScale 1 sieht auf grossem Monitor gitterartig/blockig aus, Text "komisch" (neu seit
+  Update 658). Vollbild-Aufnahmen (Monitor 2, 2560x1440, `scratchpad/ice_20261018/winshot.ps1`):
+  mit FXAA HUD-Ziffern/Icons verschmiert ("28" ~ "20"), ohne FXAA scharf; Nutzer sah den Unterschied
+  live ("naechster Lauf besser, zumindest Text").
+- Ursache: FXAA lief auf dem 640x480-Bild, das danach ~2-3x aufs Fenster gestreckt wird.
+- display.c: FXAA nur bei Skalierung > 1 (aus RECOMP_SURFACE_SCALE, da die Pipeline vor dem
+  Setzen von surface_scale_factor entsteht); `RECOMP_FXAA=0` aus, `=2` auch bei 1x. Log
+  `[VK] display anti-aliasing on/off (render scale N)`. Optionstext/READMEs ergaenzt.
+
+## Update 668 -- Verkleinern aufs Fenster gleichmaessig gemittelt (18.10.2026)
+
+- RenderScale 3 auf Full HD: 1920x1440 -> 1920x1080 per einem LINEAR-Blit gewichtet Quellzeilen
+  ungleich (jede vierte halb), duenne HUD-Linien/Text flimmern.
+- nv2a_recomp.c (GL-Present): ist das Bild groesser als das Fenster, LINEAR auf 2x/4x Fenstergroesse
+  je Achse, dann exakte 2:1-LINEAR-Halbierungen, letzte Stufe 1:1 ins Fenster. Persistente
+  Hilfstexturen/FBOs (max. 3). `RECOMP_PRESENT_DOWNSCALE=0` = alt. Log einmalig
+  `[GPU-DISPLAY] downscale 1920x1440 -> 1920x1080 in 2 steps (x1/x2)`.
+- Test: Fenster 1920x1080 (scda_window.txt), Scale 3: Pfad aktiv, keine Fehler; Standbild-HUD
+  neu/alt praktisch gleich (Effekt v.a. in Bewegung) -> Nutzertest am Full-HD-Monitor offen.
+- Release `release/SCDA_Recomp_v1.2.zip` (Updates 662-668, SHA-256 adb8bb83...) nach
+  `Z:\Console BIOS ISO FLASH\Neuer Ordner` kopiert (auf Nutzerwunsch, neuer Ordner), dazu
+  `controller_check`. Update 666 (Supersample kleiner Renderziele) bleibt drin, Nutzer: Glow stoert
+  nicht mehr.
+
+## Update 669 -- DPI-Bewusstsein, Texturfilterung (Option TextureFiltering) (18.10.2026)
+
+- Nutzer (anderer PC, Full HD): Vollbild blockig nur bei Windows-Skalierung 150 %; 100 % hilft.
+  Ursache: EXE nicht DPI-aware -> Windows gibt kleinere virtuelle Flaeche und streckt selbst.
+  main.c: SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) vor jedem Fenster (Fallback
+  SetProcessDPIAware).
+- Nutzer: Wand teils scharf, dann schlagartig unscharf. Ursache (vgl. Update 630): SCDA nutzt
+  TENT_NEARESTLOD (harter Mip-Wechsel); NV2A-LOD-Bias (-0,496) wurde ignoriert -> Wechsel frueher als
+  auf HW. Neu: LOD-Bias standardmaessig an (`RECOMP_TEX_LOD_BIAS=0` aus); `RECOMP_TEX_FILTER`
+  (Option `TextureFiltering`, Vorlage 2): 0 = Konsole (naechste Mip + Bias), 1 = Mips ueberblendet,
+  2 = 1 + 16x anisotrop (nur gemippte LINEAR-Texturen; Geraetefeature samplerAnisotropy optional
+  aktiviert, `r->sampler_anisotropy_enabled`). Log `[VK] texture filtering N`.
+- Test: texf_0/texf_2 (Scale 2, Island): Stufe 2 sichtbar schaerfere Felswaende, keine Fehler.
+- Release `release/SCDA_Recomp_v1.3.zip` (SHA-256 41d27ed6...) nach `Z:\Console BIOS ISO FLASH\Neuer
+  Ordner`. Build EXE SHA-256 1b63869e... Offen: Nutzerurteil Surround (Raumklang-Verteilung im
+  Spiel vorne+hinten), Vollbild mit 150 % gegenpruefen.
+
+## Update 670 -- Vulkan waehlt die eigenstaendige Grafikkarte (Laptops Intel + NVIDIA) (19.10.2026)
+
+- Nutzer: Laptop Intel HD + GTX 960M (2 GB). OpenGL laeuft (15-25 FPS bei 2x, Bloom-Skalierfehler
+  des GL-Pfads), Vulkan ohne Crashdump mit kaputtem Bild; mit "Intel" in Windows schwarz.
+- Ursache: instance.c nahm das erste kompatible Geraet (meist die iGPU); die Windows-GPU-Wahl gilt
+  nicht fuer Vulkan. Neu: Geraet mit `RECOMP_VK_DEVICE` im Namen (Option `GraphicsCard`, leer =
+  automatisch), sonst diskrete GPU mit dem meisten Geraetespeicher, sonst erstes kompatibles. Log listet
+  Typ und MB je Geraet; falscher Name -> Meldung + Automatik.
+- Test gpu_sel: Liste "NVIDIA GeForce RTX 3090 (discrete, 24322 MB)", `intel` -> Meldung, Auswahl RTX.
+- Release `release/SCDA_Recomp_v1.4.zip` nach `Z:\Console BIOS ISO FLASH\Neuer Ordner`.
+
+## Update 671 -- Vulkan-Anzeigebild mit eigener Speicherzuteilung (GTX 960M) (19.10.2026)
+
+- Nutzer-Log Laptop (v1.4-EXE): GTX 960M korrekt gewaehlt, dann Abbruch `vk_result = -2`
+  (VK_ERROR_OUT_OF_DEVICE_MEMORY) in display.c create_display_image beim vkAllocateMemory des
+  exportierten (OPAQUE_WIN32, an GL gereichten) Anzeigebilds, beim ersten Bild.
+- Hypothese: Treiber verlangt fuer exportierte Bilder eine dedizierte Zuteilung (DEDICATED_ONLY).
+  Neu: vkGetPhysicalDeviceImageFormatProperties2 fragt das ab; dann VkMemoryDedicatedAllocateInfo und
+  in GL `glMemoryObjectParameterivEXT(GL_DEDICATED_MEMORY_OBJECT_EXT)` vor dem Import (Funktion im
+  GL-Shim/Loader ergaenzt, optional). Scheitert die normale Zuteilung trotzdem, automatischer zweiter
+  Versuch dediziert. `RECOMP_VK_DISPLAY_DEDICATED=1` erzwingt. Log `[VK] display image: ...`.
+- Test RTX 3090: normal "shared"; erzwungen "dedicated" -> Bild korrekt (Fensterfoto), kein Fehler.
+  Laptop-Test durch Nutzer offen. Release `release/SCDA_Recomp_v1.5.zip` (SHA-256 d9d2594f...) nach
+  `Z:\Console BIOS ISO FLASH\Neuer Ordner`.
+
+## Update 672 -- Vulkan-Anzeige: CPU-Rueckfallweg ohne GL-Interop (GTX 960M) (19.10.2026)
+
+- Nutzer-Log v1.5 (Laptop): Treiber meldet DEDICATED_ONLY, die dedizierte Zuteilung des exportierten
+  Anzeigebilds (5 MB, Typ 8) scheitert trotzdem mit -2 -> Export ueberhaupt nicht moeglich (Optimus).
+- Neu (display.c): scheitert der Export, wird das Anzeigebild normal (ohne Export, +TRANSFER_SRC)
+  angelegt; render_display kopiert es nach dem Zeichnen in einen host-sichtbaren Puffer
+  (vkCmdCopyImageToBuffer; die Hilfssubmission wartet ohnehin auf Queue-Idle) und laedt es per
+  glTexSubImage2D in eine normale GL-Textur, glFinish fuer den geteilten Fenster-Kontext. Bild bleibt
+  danach TRANSFER_SRC (Uebergang nach SHADER_READ ist in image.c nicht vorgesehen, unnoetig).
+  glTexSubImage2D im GL-Shim ergaenzt. `RECOMP_VK_DISPLAY_READBACK=1` erzwingt den Weg (Test).
+- Test RTX 3090 erzwungen: Log "using CPU readback", Bild korrekt und richtig herum, kein Fehler.
+  Release `release/SCDA_Recomp_v1.6.zip` nach `Z:\Console BIOS ISO FLASH\Neuer Ordner`.
+
+## Update 673 (2026-10-19): Vulkan auf 2-GB-Karten - VRAM war voll, nicht Optimus
+
+- Laptop-Log v1.6 (GTX 960M, 2215 MB): auch der *plain* device-local Display-Image-Alloc
+  (5 MB, ohne Export) scheitert mit -2 (VK_ERROR_OUT_OF_DEVICE_MEMORY), Assert display.c:837.
+  Damit ist die Ursache von 671/672 neu bewertet: der VRAM war erschoepft, nicht (nur) der Export.
+- Ursache: `buffer.c` legte BUFFER_COMPUTE_DST/SRC (Tiefen/Stencil-Umwandlung) fest mit je
+  10240*10240*8 = 800 MiB device-local an -> 1,6 GB von 2 GB.
+- Fix: Groesse = 1/8 des groessten device-local Heaps, min 128 MiB, max 800 MiB (2 GB -> 256 MiB;
+  RTX 3090 bleibt 800 MiB). Log `[VK] conversion buffers N MiB each (VRAM M MiB)`.
+  Testschalter `RECOMP_VK_CONVERSION_MB`. Warnung in surface.c, falls eine Umwandlung
+  (ca. 5 Byte/skaliertem Pixel) groesser waere.
+- Readback-Pfad (672): device-local Alloc faellt jetzt auf alle anderen erlaubten Memory-Types zurueck.
+- Tests RTX 3090: vram673 (Standard, 800 MiB, Export-Pfad "shared") ok; vram673b mit
+  RECOMP_VK_CONVERSION_MB=256, Island Spielstand 1, Scale 2, 90 s: Bild korrekt, keine Warnung.
+- Release v1.61 (neues Versionsschema des Nutzers: 1.61, 1.62, ...), SHA 36e8d761..., nach
+  Z:\Console BIOS ISO FLASH\Neuer Ordner kopiert. Laptop-Test steht aus.
+
+## Update 674 (2026-10-19): GL und Vulkan auf verschiedenen GPUs (Laptop nach Ordnerwechsel)
+
+- Laptop v1.61 lief einmal mit 60 FPS (Update 673 wirkt: `conversion buffers 250 MiB each (VRAM 2001 MiB)`).
+  Nach Verschieben des Ordners (Desktop -> Dokumente) Absturz: assert glGetError() nach
+  glImportMemoryWin32HandleEXT (display.c). Log: GL-Kontext jetzt `Intel(R) HD Graphics 530`,
+  Vulkan weiter GTX 960M -> Speicherfreigabe zwischen zwei GPUs unmoeglich. Ursache: die
+  Optimus-GPU-Zuordnung war pro EXE-Pfad gespeichert und galt nach dem Verschieben nicht mehr.
+- Fix 1 (main.c): `NvOptimusEnablement = 1` und `AmdPowerXpressRequestHighPerformance = 1`
+  exportiert (dumpbin /exports bestaetigt) -> GL immer auf der diskreten GPU, pfadunabhaengig.
+- Fix 2 (display.c): GL-Importfehler nicht mehr fatal; Log `[VK] GL import of the display image
+  failed ... -- using CPU readback`, Bild wird abgebaut und dauerhaft (static
+  s_display_readback_forced) ueber CPU-Readback (Update 672) neu angelegt.
+  Testschalter `RECOMP_VK_DISPLAY_IMPORT_FAIL=1`.
+- Test imp674 (RTX 3090, Importfehler erzwungen): kein Absturz, Readback-Meldung, Bild korrekt.
+  Spiel blieb im Dialog "Controller anschliessen" (echter XInput-Pad am Test-PC war aus;
+  Eingabeskript braucht verbundenen Pad) - nicht durch die Aenderung verursacht.
+  Offen: Readback-FPS im Spielbetrieb nicht gemessen.
+- Release v1.62 (SHA 7802b373...), nach Z:\Console BIOS ISO FLASH\Neuer Ordner kopiert.
+
+## ARM-Vorabklaerung Khadas Edge 2 (2026-10-25, kein Code geaendert)
+
+- Board: Khadas Edge 2 (RK3588S, 4x A76 2.3 GHz + 4x A55, 7.5 GB), Ubuntu 24.04.5, Kernel 6.1.118 (Khadas BSP).
+  SSH-Alias `khadas` (192.168.1.249, Key ~/.ssh/id_ed25519_khadas), sudo ohne Passwort via /etc/sudoers.d/90-claude.
+- Original-Mali-Blob (g13p0, /dev/mali0) kann nur GLES 3.2: kein Vulkan, kein Desktop-GL.
+- Umgestellt auf freien Treiber: fdt_overlays=panthor-gpu (Backup *.overlay.env.bak_claude),
+  /etc/ld.so.conf.d/00-aarch64-mali.conf -> *.disabled_claude, Mesa 25.2.8 installiert.
+  Ergebnis: panvk Vulkan 1.4.318, Konformitaet 1.4.1.2; Panfrost GL 3.1 / GLES 3.1; GNOME laeuft.
+- Renderer-Anforderungen (instance.c required_features) gegen panvk:
+  depthClamp, occlusionQueryPrecise, samplerAnisotropy, demote, customBorderColor, provokingVertexLast,
+  external_memory_fd/semaphore_fd, memory_budget: vorhanden.
+  FEHLEN: geometryShader, shaderClipDistance, shaderTessellationAndGeometryPointSize
+  -> xemu-Vulkan-Renderer startet so nicht. Ersatz noetig (Quads/Polygone per Index-Umbau, Flat per
+  provoking vertex, Clip-Planes per Fragment-discard). Desktop-GL-Renderer scheidet aus (GL 3.1 < 4.x).
+
+## Wine-Kurztest TGP482-Port auf Khadas Edge 2 (2026-10-25, kein Code geaendert)
+
+- Board: Zeitzone von UTC auf Europe/Berlin korrigiert (aeltere Board-Logs 2 h versetzt).
+  Spiel als ISO auf externer SSD /media/khadas/SSD_EXT/GAME/SCDA_Recomp_v1.62/gamefiles/.
+- Box64 v0.4.5 (420eda6) aus Quellcode mit -DRK3588=1 gebaut, /usr/local/bin. Wine aus Kron4ek-Builds
+  (sha256 geprueft) unter ~/wine-test, Umgebung ~/wine-test/env.sh (DISPLAY=:0, Xwayland-Auth).
+  Wine 11.20: Assertion in ntdll virtual.c (set_mem_area_state) auf dem 39-Bit-Kernel. Wine 10.0 (wine64): laeuft.
+- TGP482 SCDA.exe (D3D12) unter ~/tgp, assets/scda.iso -> SSD:
+  DXVK 3.1.1 dxgi: Mali abgelehnt (fehlt fillModeNonSolid). vkd3d-proton 3.0.1: kein Device (fehlt transform feedback).
+  Wine-eigenes vkd3d: D3D12-Device entsteht, Spiel in ISO erkannt, 8 Shader, dann schwarzes Fenster und Haenger
+  nach "Display HDR" (26 Threads, 10-20 % CPU, select/futex; RtlReleaseSRWLockExclusive-Fehler). vsync aus +
+  windowed unveraendert. Zwei gleiche Ergebnisse -> abgebrochen. Ursache offen (vkd3d/panvk Fence/Present oder Box64).
+
+## Update 675 (2026-10-25): Mali-Modus - SCDA laeuft bis ins Hauptmenue auf dem Khadas Edge 2 (Mali-G610)
+
+Weg: unveraenderte Windows-EXE unter Box64 v0.4.5 + Wine 10.0 auf Ubuntu 24.04 (Panthor/panvk Vulkan 1.4).
+Starter auf dem Board: ~/scda/start_scda.sh (+ Desktop-Symbol), Spieldaten ~/scda/gamefiles/SCDA (Original von Z:).
+
+Code (alle Aenderungen greifen nur, wenn die Faehigkeit fehlt -- PC-Regressionslauf pc675reg unveraendert):
+- gloffscreen_wgl.c / gl_loader.c / epoxy/gl.h: GL-Kontext 4.0 -> Fallback 3.3/3.2/3.1/3.0; dann
+  nv2a_gl_legacy_context, Loader nicht strikt. pgraph.c: kein Rueckfall auf GL-Renderer bei GL < 4.0.
+- vk/instance.c: geometryShader, shaderTessellationAndGeometryPointSize, shaderClipDistance optional
+  (r->geometry_shader_supported, Testschalter RECOMP_VK_NO_GEOMETRY=1); fillModeNonSolid optional
+  (sonst Polygonmodus FILL); external_memory/semaphore win32/fd optional (r->display_interop_enabled).
+- vk/shaders.c: ohne GS kein Geometry-Shader. vk/draw.c: QUADS/QUAD_STRIP -> TRIANGLE_LIST mit
+  CPU-Indexliste in allen vier Zeichenwegen (arrays, inline elements, inline buffer, inline array);
+  smooth Diagonale 0-2 wie der GS, flat 1-3 (provoking last = Eckpunkt 3). Zustand aus pg-Registern
+  (shader_binding ist vor begin_pre_draw noch der alte -> erster Versuch stuerzte ab).
+- vk/display.c: ohne Interop/GL-Memory-Object direkt CPU-Readback, kein Export-Image.
+- vk/buffer.c: Inline-Vertex-Ring = VRAM/16 (min. 1 Batch 128 MiB, max. alte 1279 MiB); Fehlerausgabe.
+- xbox_memory_layout.c: zweite Basis 0x10_0000_0000 (39-Bit-Adressraum; Box64 belegt 0x7F000000-0x82000000,
+  dort scheiterten Contig-Fenster/Kernel-PE bei 0x80000000).
+- kernel_bridge.c: RECOMP_IRQ_ASYNC=0 schaltet die asynchrone IRQ-Zustellung (SuspendThread/
+  SetThreadContext-Hijack) auch im xemu-Pfad ab. Unter Box64 enthaelt der Kontext veraltete Register
+  -> zufaellige NULL-Abstuerze (sub_0003CA9F, DSOUND sub_004D3714) und gescheiterte Bink-Allokation
+  (NULLVCALL 0x004B9C34). Mit =0: 2x90 s + 260 s + Intro-Lauf ohne Absturz.
+Board-Laufzeit-Schalter (start_scda.sh): RECOMP_NV2A_ACCESS_CB=0 (Seitenschutz-Tracking erzeugte
+  verschachtelte Ausnahmen in memcpy), RECOMP_IRQ_ASYNC=0, BOX64_DYNAREC_STRONGMEM=1 FASTNAN=0
+  FASTROUND=0 SAFEFLAGS=2 (vorsorglich; die Abstuerze lagen am Hijack).
+Ergebnis Board: Intro-Videos, Ladebildschirm, Titel "PRESS START", Hauptmenue per Eingabeskript;
+  ~13-14 Bilder/s im Menue (Box64-Uebersetzung + MMIO-Traps + CPU-Readback). Ton nicht geprueft.
+Nebenbefund: externe SSD SSD_EXT hat einen Lesefehler (dmesg I/O error Sektor 158927528) mitten in
+  der dortigen ISO; die ISO ist ausserdem eine andere Fassung (XBE-MD5 abweichend).
+Testwerkzeug: run_scda_canon.ps1 -FreshBoot (ohne Spielstand); RECOMP_INPUT_KEYBOARD=1 fuer Tests ohne Pad.
+
+## Update 676 (2026-10-25): Board-Feinschliff - Neustart-OOM, integrierte GPU, Readback-Speichertyp
+
+- Titel-Neustart (XLaunchNewImage) auf dem Board: alte und neue Instanz liefen kurz parallel (Fenster-
+  uebergabe, Update 502) und sprengten zusammen die 7,5 GB -> OOM-Kill. Board-Starter setzt
+  RECOMP_HANDOVER=0 (alte Instanz endet sofort).
+- vk/buffer.c: integrierte GPUs (VkPhysicalDeviceType INTEGRATED, Mali: ein gemeinsamer Speicherpool)
+  rechnen mit VRAM/4 fuer die Konversionspuffer und den Inline-Vertex-Ring.
+- vk/display.c: Readback-Puffer bevorzugt HOST_CACHED (COHERENT|CACHED, dann CACHED nicht-koharent mit
+  vkInvalidateMappedMemoryRanges, sonst COHERENT). Das ungecachte Lesen war der Grund fuer die
+  ruckelnden Videos im Readback-Pfad; auf dem PC lief der Readback-Pfad damit wieder voll schnell.
+- Flaschenhals auf dem Board: CPU (Gast-Thread unter Box64 100 %), GPU idle bei 300 MHz.
+
+## Update 677 (2026-10-25, laufend): Kern-Pinning-Schalter und nativer ARM64-Port (ohne Box64/Wine)
+
+Schalter: RECOMP_GUEST_UNPINNED=1 (xbox_PinGuestThread) laesst Gast-Threads auf allen Kernen laufen und
+reserviert keinen Kern ("[CPU] guest threads unpinned"). Nur Testschalter; Standard bleibt gepinnt.
+
+Nativer Port -- Ansatz "Wine-light": die vorhandene POSIX-Win32-Schicht (src/platform) wird so weit
+ausgebaut, dass die getesteten Win32-Codepfade des Runtimes (Datei-/Pfad-Schicht, Threads, VEH) auch
+auf Linux laufen (XBOX_POSIX_WIN32_SHIM). Pfade bleiben Windows-artig wie unter Wine: "Z:\home\..." =
+"/home/...", Namen werden komponentenweise ohne Gross-/Kleinschreibung aufgeloest.
+- Plattform: win32_compat_ext.c (VEH ueber sigaction inkl. AArch64-ESR fuer Lese/Schreib-Unterscheidung,
+  SRW, InitOnce, Wartetimer, CreateProcess ueber posix_spawn, WaitOnAddress ueber Futex, dlopen-
+  LoadLibrary, Secure-CRT, 16-bit-Wide-CRT + MSVC-printf-Semantik "%S"/I64), win32_compat_file.c
+  (komplette Datei-API: CreateFile/ReadFile mit OVERLAPPED, Find*, Attribute, Verzeichnisse, Move/Copy,
+  GetFinalPathNameByHandle, SHGetFolderPath -> XDG). Eingabe-Bruecke w32_input_* (GetAsyncKeyState,
+  GetKeyState, XInputGet/SetState, GetForegroundWindow).
+- -fshort-wchar fuer allen C-Code: L"..." ist 16 Bit wie WCHAR; wcs*/swprintf_s werden auf eigene
+  16-Bit-Implementierungen umgeleitet (glibc rechnet mit 4 Byte).
+- Kernel: mmio_decode_arm64.c (LDR/STR/LDP/STP/PRFM-Emulation fuer getrappte Aperturen), CONTEXT fuer
+  aarch64, Write-Watch-VEHs/IRQ-Hijack nur unter Windows (IRQs synchron wie RECOMP_IRQ_ASYNC=0),
+  recomp_cpuid liefert auf ARM die Werte der Xbox-CPU (GenuineIntel, Familie 6 Modell 8, SSE),
+  g_recomp_mxcsr fuer recomp_cvt_rc.
+- GPU: src/gpu baut auf Linux (Vulkan-Renderer + GL-Praesentation); gloffscreen_egl.c (EGL-Kontexte,
+  surfacelos, X11-Fensteroberflaeche mit passendem Visual), gl_loader ueber eglGetProcAddress,
+  Anzeige immer per CPU-Readback, glslang aus der Distribution (15.1, statisch).
+- Fenster/Eingabe: video/fb_present_sdl.c (SDL2, X11 erzwungen; Tastatur -> VK-Codes, GameController ->
+  XINPUT_STATE inkl. Rumble). Ton: apu_xaudio2.c POSIX-Zweig ueber SDL-Audio-Queue (gleiche
+  256-Frame-Bloecke, xa2_queued fuer das APU-Pacing). Dolby-Passthrough und DSP56300-JIT-DLL auf Linux aus.
+- SCDA: main.c Linux-Startpfad (Release-Layout, Optionen, Log, Absturz-Backtrace), scda_layout.c
+  ISO-Fortschritt auf der Konsole.
+Board-Build: ~/xr (Spiegel), ~/xr/build (Ninja RelWithDebInfo); generierter Code mit -O1 -g0
+-fno-strict-aliasing -fwrapv. Ordner ~/scda-native (Starter start_scda_native.sh, eigener user\).
+Stand 2026-10-25 abends (pausiert, PC-Neustart des Nutzers): natives Binary ~/scda-native/scda_recomp
+startet, Vulkan-Mali-Modus + EGL-Praesentation laufen, Ladebildschirm und Titel "PLEASE PRESS START"
+nach ~40 s (Dumps shots/). Bildrate mit RECOMP_VSYNC=0: ~27-31 FPS in der Titelphase (Box64: 13-14),
+nach START/Menue ~7,5 FPS (Ursache offen). Mit vsync=1 nur 1 FPS, vermutlich weil der Board-Monitor
+aus/umgeschaltet war (Wayland drosselt Frame-Callbacks auf 1 Hz) -- pruefen.
+Behobene Laufzeitfehler: _stricmp-Makro machte strcasecmp selbstrekursiv (Haenger beim Optionen-Laden);
+OUT_FMT wertete va_arg doppelt aus (Partition-.img); MapViewOfFileEx/VirtualAlloc nutzen
+MAP_FIXED_NOREPLACE statt MAP_FIXED; SDL-Fensterpuffer ohne GLX (BadAccess im Dump-Modus);
+APU-g_config kollidierte mit GPU-g_config (jetzt g_apu_config, betrifft auch Windows-Build).
+Naechste Schritte: Menue-Szene mit 7,5 FPS ansehen (Dumps m9-m15), vsync-Verhalten mit Monitor an,
+Ton hoeren, Controller testen, Windows-Build-Regression (gemeinsame Dateien geaendert!).
+Nachtrag 2026-10-25 ~21:00: Pinning-A/B nativ (Testskript bis ins Level): Menue gepinnt ~26 vs ungepinnt ~22 FPS, Level-Zwischensequenz gepinnt Ø ~20 vs ungepinnt Ø ~12 FPS -> Pinning bleibt Standard. Titel-Neustart ins Level funktioniert nativ. Neu: RECOMP_FB_SHOT_AT/RECOMP_FB_SHOT (Einzel-Dumps bei laufendem GL-Praesentieren). Uebergabedatei fuer weitere Agenten: agent_handoff/ARM_NATIVE_PORT_STATUS.md.
+
+**Update 678, 2026-10-25 -- Windows-Regression des nativen ARM-Port-Stands:** Der kanonische
+Windows-Baum `build/scda_upgrade` wurde als RelWithDebInfo/`scda_recomp` erfolgreich gebaut.
+Die EXE hat Zeitstempel 13:41:35 und SHA-256
+`6A848F56A8F2B5D9590316B46D6B6E8BD65EAA64CC54043B4088C725092D3536`. Ein isolierter
+30-s-Frischboot-Test mit `RECOMP_SMOKE_MUTE=1` lief ohne Absturz, produzierte weiter
+GPU-, Audio- und Fensterfortschritt und beendete danach ausschliesslich seine eigene PID.
+Das verifiziert Build und Kurzstart, nicht sichtbares Menue oder Spielbarkeit.
+
+**Update 679, 2026-10-25 -- Natives Relaunch-Kind beim Testende bereinigt:** Ursache
+war der Testhelfer, nicht `posix_spawn`: `setsid` kann selbst forken, daher bezeichnete
+`$!` nur seinen kurzlebigen Wrapper statt des Session-Leaders. `agent_handoff/test.sh`
+liest die echte PID jetzt aus einer von der neuen Session vor dem `exec` geschriebenen
+temporären Datei und beendet ausschliesslich die via `ps -g` ermittelten Mitglieder
+dieser eigenen Prozessgruppe einzeln per PID. Der vorher reproduzierte Restprozess
+PID 77120 wurde einzeln beendet. Syntaxprüfung auf dem Board und anschliessender
+stummer 105-s-Test bis zum Island-Relaunch: keine `scda_recomp`-Instanz blieb zurück.
+
+**Update 680, 2026-10-25 -- Port-Verwechslung und Diagnose-Defines A/B:** `pgrep`
+zeigte beim Nutzerlauf eindeutig `scda_recomp.exe` via `wine64` aus `~/scda`, also
+den älteren Box64/Wine-Weg mit den beobachteten 9–10 FPS. Danach nativer ARM64-
+Referenzlauf (`RECOMP_VSYNC=0`, `RECOMP_SMOKE_MUTE=1`, 105 s, Eingabeskript bis
+Island): Titel 150–161 Refreshes/5 s (~30 FPS), Island typischerweise 88–101/5 s
+(~18–20 FPS). Zwei gezielte Island-BMPs visuell korrekt. Für Linux wurden
+versuchsweise `RECOMP_ABI_CHECK`, Trace-Defines und `SCDA_ICALL_PROBE` beim
+SCDA-Target sowie `RECOMP_ABI_CHECK` beim Kernel deaktiviert. Vollständiger
+Board-Neubau erfolgreich, SHA-256 `bc064188f097dfe977f37a3011d5410c5a5d1667a7d224e01799dff55305e09a`.
+Nach dem Relaunch 0 Bilder in vier aufeinanderfolgenden 5-s-Fenstern und
+`XGetDeviceChanges` millionenfach. Die Änderung ist damit verworfen;
+CMake-Datei auf PC und Board zurückgesetzt, stabile Board-EXE mit SHA-256
+`ebe71e638190c76bda3e785dbd54e4f84f1ed1ff81853a2887a0568c243b10ce`
+wiederhergestellt. Einzeln welcher Diagnose-Schalter die Regression auslöste,
+ist noch offen. Die gelbe Ladefläche wurde im nativen Lauf noch nicht gezielt
+festgehalten; ältere PC-Logs schreiben ein ähnliches Phänomen veralteten
+Grafikflächen während des Ladens zu.
+
+**Update 681, 2026-10-25 -- ABI-Einzelfaktor und Port-Starter:** Bei einem
+zweiten Build blieb die Trace-/ICALL-Instrumentierung unverändert; nur
+`RECOMP_ABI_CHECK` wurde für Linux auf SCDA-Target und Kernel deaktiviert.
+Build erfolgreich (SHA-256
+`2dee4c8daa01e27c7f830fca7320d9288ffa570cbc8810f58c307c2b00c407b5`),
+doch der identische stumme 105-s-Lauf blieb nach dem Level-Relaunch wiederum
+in der Eingabe-Poll-Schleife ohne neue Bilder (viermal 0/5 s). Der ABI-Schalter
+schien damit zunächst als Auslöser isoliert. Update 682 widerlegt das:
+die alte EXE zeigt unter denselben persistierten Daten ebenfalls 0 Bilder.
+Stabile EXE und
+CMake-Konfiguration wiederhergestellt. Ein neuer Desktop-Eintrag
+`agent_handoff/SCDA-Native-ARM64.desktop` liegt auf dem Board unter
+`~/Desktop/SCDA-Native-ARM64.desktop`, ausführbar und GNOME-trusted; sein
+Exec zeigt auf den nativen Starter. Der alte Eintrag startet weiterhin Wine.
+Die Threadmessung der stabilen Variante zeigte Hauptspielthread auf CPU 7
+und einen ~25–30 %-Thread, der zwischen CPU 0 und 6 wanderte. Ein `-O2`-
+Build nur für generierten Linux-Code (ABI/Trace aktiv) läuft zur A/B-Messung.
+
+**Update 682, 2026-10-25 -- A/B-Fehlschluss durch geteilte Testdaten:** `-O2`
+(`-g0`, ABI/Trace unverändert) auf dem Board erfolgreich gebaut, SHA-256
+`be02b2797012dd2fc7d0995c729e18b345f46c2e5b99b8ceb672e301ef2f210d`.
+Im bisherigen Testordner blieb die Relaunch-Instanz wie beim ABI-Test nach
+einigen Bildern stehen (vier 5-s-Fenster 0). Der unmittelbar folgende
+Kontrolllauf mit der gesicherten unveränderten EXE zeigte denselben Stillstand.
+Damit ist der Fehler nicht eindeutig einer Buildänderung zuzuordnen; die
+gemeinsam genutzten persistierten Testdaten (UDATA/TDATA/Launch-Seite)
+konfundieren den Vergleich. Vorläufig wieder alte EXE im nativen Spielordner.
+Für die nächste Messung zwei frische Testordner mit identischem Ausgangsstand
+anlegen; vorhandene Daten nicht löschen.
+
+**Update 683, 2026-10-25 -- Gepaarter Performance-Test und Rückbau:** Zwei
+frische Board-Ordner `~/scda-ab-o1` und `~/scda-ab-o2` mit denselben Spielinhalten
+als Symlink und getrenntem Save-Bereich angelegt. Nach einem ersten Profillauf
+den O1-Test-Save einmalig nach O2 kopiert; beide folgenden 105-s-Läufe hatten
+damit denselben Ausgangsstand. Menüphase O1 meist 126–136 Refreshes/5 s,
+O2 148–153/5 s: rund 15 % schneller. Beide Läufe schrieben die identische
+4-KiB-Launch-Seite (SHA-256 `012f02d23498168c12869317c74869a727a258178e8e77a5362b686231afeb0d`)
+und blieben danach bei 0 Bildern stehen. Ein direkter O1-Levelstart mit
+dieser Seite lieferte zunächst 67–68 Bilder/5 s, anschließend 0; gezielte
+spielinterne BMPs bei Sekunde 1 und 3 waren schwarz. Der zuvor erfolgreich
+beobachtete Island-Pfad ist davon getrennt zu behandeln; kein `-O2`-Gameplay-
+Nachweis. Native Installation auf O1 belassen, Board-Buildbaum nach Rücknahme
+der CMake-Flagänderung erfolgreich auf O1 neu gebaut: beide EXEs SHA-256
+`ebe71e638190c76bda3e785dbd54e4f84f1ed1ff81853a2887a0568c243b10ce`.
+O2 bleibt nur in `~/scda-ab-o2/scda_recomp`. Desktop-Eintrag für ARM nativ
+mit `desktop-file-validate` fehlerfrei, per GNOME-Metadatum freigegeben.
+Abschließendes `pgrep -a scda_recomp` leer.
+
+**Update 684, 2026-10-25 -- Nativer Desktop-Start ohne sichtbares GPU-Bild:**
+Die laufende Nutzerinstanz war `./scda_recomp` (PID 93723), also tatsächlich
+ARM64 nativ und nicht Wine. Ihr Prozess-Environment enthielt
+`SDL_VIDEODRIVER=wayland`. `src/video/fb_present_sdl.c` setzt den nötigen
+X11-Treiber bisher nur, wenn diese Variable fehlt; mit Wayland erhält es
+keine X11-Fenster-ID. Das Nutzerlog bestätigt `[FBWIN] not an X11 window:
+GPU presenting disabled`, `SDL wayland` und `[FBWIN-RATE] ... (CPU)` mit
+ungefähr 60 Fensterupdates/s. Die Titel-FPS belegen daher kein sichtbares
+Spielbild. `agent_handoff/start_scda_native.sh` exportiert nun vor dem Start
+`SDL_VIDEODRIVER=x11`; genau dieses Skript auf dem Board aktualisiert,
+`sh -n` erfolgreich und Xwayland-Verbindung mit dem Nutzer-XAUTHORITY
+erfolgreich geprüft. Die Nutzer-PID wurde nicht beendet; der korrigierte
+Ausgabepfad wirkt erst nach einem Neustart und ist sichtbar noch ungetestet.
+Kein Binär-Rebuild oder Eingriff in generierten Code.
+
+**Update 685, 2026-10-25 -- ARM64-Mehrkern-Engpass im interaktiven Lauf:**
+Die native Nutzerinstanz PID 95122 lief bei `RenderScale = 2`, `VSync = 1`
+mit EGL/GL-Präsentation; die letzten FBWIN-Raten enthielten u. a. 51–70
+Bilder/5 s. `pidstat -t -p 95122 1 3` (rein lesend) zeigte 138–164 %
+Prozess-CPU, auf CPU 7 zwei Gastthreads mit jeweils ca. 39–44 % CPU und
+34–48 % `%wait`, sowie einen arbeitsintensiven anderen Thread auf CPU 0–6
+mit 44–66 % CPU. `Cpus_allowed_list` bestätigte 7 für die zwei Gastthreads
+und 0–6 für den anderen. Es gibt also Parallelität, doch die Gastthreads
+konkurrieren auf demselben A76-Kern. Das frühere vollständige Entpinnen
+verlor Leistung, weil auch die vier A55-Kerne benutzt werden können.
+
+`src/kernel/xbox_memory_layout.c` hat deshalb einen POSIX-only,
+standardmäßig inaktiven `RECOMP_GUEST_CPU_MASK`-Pfad erhalten. Ein gültiger
+Bitmaskenwert (z. B. `0xC0` für CPUs 6–7) wird mit der verfügbaren
+Prozessmaske geschnitten und in `xbox_PinGuestThread` angewendet; ohne
+Variable bleibt die bisherige Ein-Kern-Affinität unverändert. Es wurde
+noch nicht gebaut oder getestet, da die Nutzerinstanz weiterhin lief.
+Erst nach deren Ende: isoliertes, gepaartes Gameplay-A/B mit identischem
+Anfangszustand und standardmäßig stumm, dann erst eine mögliche
+Aktivierung. Kein Prozess des Nutzers verändert oder beendet.
+
+## Update 678 (2026-10-25): ARM nativ - Thread-Affinitaet wie unter Windows, Spielstand-Test geklaert
+
+- Linux vererbt die Kernmaske des Erzeugers; der frueh auf Kern 7 gepinnte Haupt-Thread zog so viele Threads mit auf Kern 7. CreateThread-Threads starten jetzt mit der Prozess-Vorgabe (w32_set_default_thread_affinity), auf POSIX = schnelle Kerne ohne Gastkern (big_cpu_mask, RK3588 0x70); SetThreadAffinityMask wirkt auf fremde Handles. RECOMP_DEVICE_ANY_CPU=1 = alle Nicht-Gastkerne.
+- A/B gleicher Spielstand (Island, RS2): alt 68-69, neu 73-74 Bilder/5 s (+7 %). Neue EXE in ~/scda-native (Backup scda_recomp.bak_ebe71e63).
+- 'Stillstand nach Level-Launch' (Codex) war kein Fehler: nach dem Laden wartet das Spiel auf A (Haupt-Thread pollt den Controller). Mit Skript-A: RS1 ~25 FPS, RS2+AA ~15 FPS im Spiel; GPU 74-93 % bei 1000 MHz = jetziger Engpass.
+- Uebergabe: agent_handoff/ARM_NATIVE_PORT_STATUS.md (Abschnitte 6b/6c).
+
+## Update 686 (2026-10-28): Release-Vorbereitung v1.63 und GitHub-Update (nichts hochgeladen)
+
+- Stand GitHub (`git ls-remote`, privat r2bir2/scda-recomp): nur `main` = Tag `v1.0` (ac78cac,
+  13.10.2026 14:06). v1.1-v1.62 existieren nur lokal in `release/`.
+- Quellcode v1.62 ist NICHT exakt rekonstruierbar: 93 Dateien seit dem v1.62-ZIP (19.10. 16:12)
+  geaendert, alle am 25./26.10. (Mali-Modus, ARM-Port, HLE); die meisten zuerst per Skript, also
+  ohne Editor-Sicherung (Claude file-history: 4 von 93 sicher belegbar). Zwischen 19.10. 16:12 und
+  25.10. 12:07 keine Quellaenderung (Codex 24.10. ohne Patches).
+- Daher neues Release v1.63 = aktueller Quellstand. Kein Quell-File neuer als die kanonische EXE
+  26.10. 12:16:02 (SHA-256 `76045da6...12ef`) -> EXE und Quellcode passen zusammen.
+- `projects/scda/release/CHANGELOG.md` (neu, Aenderungen v1.0-v1.63, englisch); export_source.py
+  kopiert es als `CHANGELOG.md`, make_release.py als `CHANGELOG.txt`; make_release.py nimmt die
+  MIT-Lizenz von SCDA-XBERecomp (`projects/scda/src/hle/tgp/LICENSE`) in `licenses\` auf.
+- Export: `C:\VScode\SCDA_Recomp_export_v163` (980 Dateien, 54 MB, Scan sauber inkl. Key-Check).
+  In `C:\VScode\SCDA_Recomp_source` kopiert und gestaged (58 geaendert, 51 neu; ~500 reine
+  Zeilenende-Unterschiede fallen durch autocrlf weg). NICHT committet, NICHT gepusht.
+- Release-ZIP `release/SCDA_Recomp_v1.63.zip` (30 Dateien, SHA-256 `d00fc553...32bf`), EXE darin
+  = 26.10.-Build; keine Keys/Spieldaten.
+- Windows-Bildtest v1.63 (Island Spielstand 1, Scale 2, stumm, Monitor 2, 90 s):
+  RECOMP_VK_CLEAR_IN_PASS an (rel163_opt_on2) gegen aus (rel163_opt_off), mit Optionsdatei
+  (`RECOMP_NO_OPTIONS=0`), Skript `25=A,30=A,35=A,40=A,55=RSLEFT:6000`: nach der Drehung Bild 8
+  praktisch gleich (mittlere Abweichung 2,4/255, Animation), keine Vulkan-Fehler/Dumps.
+  Gruener Schleier oben links (vom Nutzer im Testfenster gesehen) nur in Laeufen mit
+  `RECOMP_NO_OPTIONS=1` (Standard von run_scda_canon.ps1): dann fehlt u. a.
+  RECOMP_VK_CROSS_TYPE_DISCARD=1 -> bekannter Randschleier (Update 653/660); an UND aus gleich.
+  Nutzer bestaetigt danach: Bloom ok.
+- Hinweise: Eingabeskript-Syntax `25..40=A` wird vom Parser nicht verstanden (bricht ab) ->
+  Komma-Liste verwenden. Lauf rel163_clear_on hing ohne virtuelles Pad im Dialog "Controller
+  anschliessen" (Update 674). Abgebrochener Lauf `rel163_opt_on` (Nutzer unterbrach Tool) liegt mit
+  Kopien (EXE/XBE/Key) unveraendert in scratchpad/render_20261006 (lokal, nicht geloescht).
+- Offen: Nutzer-Spieltest v1.63; Freigabe Upload (Commit+Push export-Repo, Tag v1.63, GitHub-
+  Releases). Alte ZIPs v1.1-v1.62: passender Quellcode fehlt (GPL-Teile xemu) -> Nutzerentscheidung.
+- Nachtrag 28.10.: Nutzerwunsch - neueste Saves nach V:\SCDA\user (v1.62-Installation ohne Key-Datei).
+  Profil 4E9B437DFEEF (kanonisches UDATA, Stand 18.10. 15:25) kopiert und NUR die Kopie mit
+  `tools/saves/xbox_resign_saves.py --from <kanonische xbox_keys.bin> --to zero` umsigniert (5 Dateien:
+  profile.sav, single0/1 + Bilder; Gegenprobe 5/5 gueltig fuer Null-Schluessel). Original unveraendert,
+  keine xbox_keys.bin auf V:. Aeltere Profile: 07C8B760B46D (scratchpad/render_20261006/s1_bz6/UDATA,
+  09.10.), CC9CF48985AE (V:\EMU\scda\user, 13.10.).
+
+## Update 687 (2026-10-29): Video-Builds v0.4 (Startabsturz) und v0.5 (altes Flackern) -- NICHT veroeffentlichen
+
+Nutzerwunsch: zwei Vorfuehr-Builds fuers YouTube-Video, ausdruecklich nicht fuer GitHub.
+
+- `V:\SCDA_Recomp_v0.4`: echter Build vom 03.09.2026 (`build/scda_upgrade_ab`, EXE 61.386.240 B,
+  dazu dessen `default.xbe`), Junctions `Default`/`Media`/`adv` auf `V:\SCDA\gamefiles\...`.
+  Mit Spieldaten: Segfault nach ~0,7 s (rc 0xC0000005, `SCDA_crash_*.dmp` im Ordner); ohne
+  Spieldaten nur HalReturnToFirmware(2). Starter `SCDA_v0.4_starten.bat` setzt
+  `SCDA_AB_TRACE_PATH=NUL` (sonst ~50 MB `scda_ab_trace.log` je Start; der Build hat den
+  AB-Trace-Handler fest drin). Konsolenfenster ohne Ausgabe (Logs gehen in Dateien).
+  Die Dumps der drei eigenen Testlaeufe liegen im Scratchpad (`v04_mytest_dumps`).
+- `V:\SCDA_Recomp_v0.5`: EXE/DLLs/Lizenzen von v1.63 (76045da6...), Spielstaende (Null-Schluessel)
+  und Optionen des Nutzers, `BloomSmoothing = 0`, Junction auf das Spiel. `SCDA_v0.5_starten.bat`
+  schaltet per Umgebung die spaeteren Flacker-Korrekturen ab: `RECOMP_ZBIAS_MESHES=off` (Zettel,
+  Update 634; "off" parst 0 Signaturen), `RECOMP_VK_NATIVE_SMALL_NEAREST=0` (Bloom-Randband 2x,
+  Update 660), `RECOMP_VK_NATIVE_SMALL_SS=0` (Glow-Saum Island, 666), `RECOMP_VK_TEXTURE_RANGE_GEN=0`
+  (Bloom-Geisterbild, 653), `RECOMP_VK_BLOOM_PREFILTER=0` (kleine Lichter, 656).
+  Das eigentliche Eisflackern von Ende September (Ursache nie isoliert, Update 459/470/471/480
+  Kandidaten) ist NICHT abschaltbar und mangels Commit-Stand nicht nachbaubar.
+- Starter-Falle: In der Claude/Git-Bash-Umgebung findet cmd eine EXE im aktuellen Ordner nicht
+  (vermutlich NoDefaultCurrentDirectoryInExePath); Starter rufen daher `"%~dp0scda_recomp.exe"`.
+- Tests: v0.4-Starter 0,74 s bis Absturz, Dump erzeugt. v0.5 70-s-Smoke (Fenster Monitor 2,
+  Stereo, stumm): kein Absturz, `[OPTIONS] 19 settings`, keine `[ZBIAS-MESH]`-Zeile (im normalen
+  Lauf "2 mesh signature(s)"). Flackern selbst nicht automatisch gemessen (Wirkung der Schalter
+  in 653/656/660 dokumentiert). Nichts gebaut, nichts committet.

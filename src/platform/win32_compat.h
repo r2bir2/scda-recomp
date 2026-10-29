@@ -227,16 +227,174 @@ unsigned int _clearfp(void);   /* clear pending FPU exception flags */
 #define FILE_ATTRIBUTE_NORMAL    0x00000080u
 #define INVALID_FILE_SIZE        0xFFFFFFFFu
 
+/* The file API lives in win32_compat_file.c (docs Update 677): Windows paths
+ * ("Z:\home\..." maps to "/home/...", backslashes), case-insensitive lookup
+ * of path components, positioned I/O through OVERLAPPED. */
+#define INVALID_FILE_ATTRIBUTES  ((DWORD)-1)
+#define INVALID_SET_FILE_POINTER ((DWORD)-1)
+#define FILE_ATTRIBUTE_DEVICE    0x00000040u
+#define FILE_ATTRIBUTE_SPARSE_FILE 0x00000200u
+#define FILE_READ_DATA           0x0001u
+#define FILE_LIST_DIRECTORY      0x0001u
+#define FILE_WRITE_DATA          0x0002u
+#define FILE_ADD_FILE            0x0002u
+#define FILE_APPEND_DATA         0x0004u
+#define FILE_READ_EA             0x0008u
+#define FILE_WRITE_EA            0x0010u
+#define FILE_EXECUTE             0x0020u
+#define FILE_TRAVERSE            0x0020u
+#define FILE_READ_ATTRIBUTES     0x0080u
+#define FILE_WRITE_ATTRIBUTES    0x0100u
+#ifndef DELETE
+#define DELETE                   0x00010000u
+#endif
+#ifndef SYNCHRONIZE
+#define SYNCHRONIZE              0x00100000u
+#endif
+#define FILE_ALL_ACCESS          0x001F01FFu
+#define FILE_GENERIC_READ        0x00120089u
+#define FILE_GENERIC_WRITE       0x00120116u
+#define FILE_FLAG_WRITE_THROUGH       0x80000000u
+#define FILE_FLAG_OVERLAPPED          0x40000000u
+#define FILE_FLAG_NO_BUFFERING        0x20000000u
+#define FILE_FLAG_RANDOM_ACCESS       0x10000000u
+#define FILE_FLAG_SEQUENTIAL_SCAN     0x08000000u
+#define FILE_FLAG_DELETE_ON_CLOSE     0x04000000u
+#define FILE_FLAG_BACKUP_SEMANTICS    0x02000000u
+#define FILE_NAME_NORMALIZED     0x0u
+#define FILE_NAME_OPENED         0x8u
+#define VOLUME_NAME_DOS          0x0u
+#define MOVEFILE_REPLACE_EXISTING 0x1u
+#define MOVEFILE_COPY_ALLOWED     0x2u
+#define MOVEFILE_WRITE_THROUGH    0x8u
+#define FSCTL_SET_SPARSE         0x000900C4u
+#define CSIDL_APPDATA            0x001A
+#define CSIDL_LOCAL_APPDATA      0x001C
+#define CSIDL_PERSONAL           0x0005
+#define ERROR_HANDLE_DISK_FULL   39u
+#define ERROR_DIR_NOT_EMPTY      145u
+#define ERROR_BAD_PATHNAME       161u
+#define ERROR_DISK_FULL          112u
+#define ERROR_SHARING_VIOLATION  32u
+#define ERROR_NEGATIVE_SEEK      131u
+#define ERROR_DIRECTORY          267u
+#ifndef ERROR_TIMEOUT
+#define ERROR_TIMEOUT            1460u
+#endif
+
+typedef struct _OVERLAPPED {
+    ULONG_PTR Internal, InternalHigh;
+    union { struct { DWORD Offset, OffsetHigh; }; PVOID Pointer; };
+    HANDLE hEvent;
+} OVERLAPPED, *LPOVERLAPPED;
+typedef VOID (*LPOVERLAPPED_COMPLETION_ROUTINE)(DWORD err, DWORD n, LPOVERLAPPED ov);
+
+typedef struct _BY_HANDLE_FILE_INFORMATION {
+    DWORD dwFileAttributes;
+    FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
+    DWORD dwVolumeSerialNumber, nFileSizeHigh, nFileSizeLow, nNumberOfLinks;
+    DWORD nFileIndexHigh, nFileIndexLow;
+} BY_HANDLE_FILE_INFORMATION, *LPBY_HANDLE_FILE_INFORMATION;
+
+typedef struct _WIN32_FIND_DATAA {
+    DWORD dwFileAttributes;
+    FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
+    DWORD nFileSizeHigh, nFileSizeLow, dwReserved0, dwReserved1;
+    CHAR cFileName[MAX_PATH];
+    CHAR cAlternateFileName[14];
+} WIN32_FIND_DATAA, *LPWIN32_FIND_DATAA;
+typedef struct _WIN32_FIND_DATAW {
+    DWORD dwFileAttributes;
+    FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
+    DWORD nFileSizeHigh, nFileSizeLow, dwReserved0, dwReserved1;
+    WCHAR cFileName[MAX_PATH];
+    WCHAR cAlternateFileName[14];
+} WIN32_FIND_DATAW, *LPWIN32_FIND_DATAW;
+typedef WIN32_FIND_DATAA WIN32_FIND_DATA, *LPWIN32_FIND_DATA;
+
+typedef enum _GET_FILEEX_INFO_LEVELS { GetFileExInfoStandard, GetFileExMaxInfoLevel }
+    GET_FILEEX_INFO_LEVELS;
+typedef struct _WIN32_FILE_ATTRIBUTE_DATA {
+    DWORD dwFileAttributes;
+    FILETIME ftCreationTime, ftLastAccessTime, ftLastWriteTime;
+    DWORD nFileSizeHigh, nFileSizeLow;
+} WIN32_FILE_ATTRIBUTE_DATA, *LPWIN32_FILE_ATTRIBUTE_DATA;
+
+typedef enum _FILE_INFO_BY_HANDLE_CLASS {
+    FileBasicInfo = 0, FileStandardInfo = 1, FileNameInfo = 2, FileRenameInfo = 3,
+    FileDispositionInfo = 4, FileAllocationInfo = 5, FileEndOfFileInfo = 6
+} FILE_INFO_BY_HANDLE_CLASS;
+typedef struct _FILE_DISPOSITION_INFO { BOOLEAN DeleteFile; } FILE_DISPOSITION_INFO;
+typedef struct _FILE_ALLOCATION_INFO { LARGE_INTEGER AllocationSize; } FILE_ALLOCATION_INFO;
+typedef struct _FILE_END_OF_FILE_INFO { LARGE_INTEGER EndOfFile; } FILE_END_OF_FILE_INFO;
+typedef struct _FILE_BASIC_INFO {
+    LARGE_INTEGER CreationTime, LastAccessTime, LastWriteTime, ChangeTime;
+    DWORD FileAttributes;
+} FILE_BASIC_INFO;
+
 HANDLE CreateFileA(LPCSTR name, DWORD access, DWORD share,
                    LPSECURITY_ATTRIBUTES sa, DWORD disp,
                    DWORD flags, HANDLE templ);
 HANDLE CreateFileW(LPCWSTR name, DWORD access, DWORD share,
                    LPSECURITY_ATTRIBUTES sa, DWORD disp,
                    DWORD flags, HANDLE templ);
-BOOL   ReadFile(HANDLE h, LPVOID buf, DWORD len, LPDWORD nread, void *overlapped);
-BOOL   WriteFile(HANDLE h, LPCVOID buf, DWORD len, LPDWORD nwritten, void *overlapped);
+BOOL   ReadFile(HANDLE h, LPVOID buf, DWORD len, LPDWORD nread, LPOVERLAPPED ov);
+BOOL   WriteFile(HANDLE h, LPCVOID buf, DWORD len, LPDWORD nwritten, LPOVERLAPPED ov);
 DWORD  GetFileSize(HANDLE h, LPDWORD high);
+BOOL   GetFileSizeEx(HANDLE h, PLARGE_INTEGER size);
 BOOL   FlushFileBuffers(HANDLE h);
+DWORD  SetFilePointer(HANDLE h, LONG lo, PLONG hi, DWORD method);
+BOOL   SetFilePointerEx(HANDLE h, LARGE_INTEGER dist, PLARGE_INTEGER newpos, DWORD method);
+BOOL   SetEndOfFile(HANDLE h);
+BOOL   GetFileInformationByHandle(HANDLE h, LPBY_HANDLE_FILE_INFORMATION info);
+BOOL   SetFileInformationByHandle(HANDLE h, FILE_INFO_BY_HANDLE_CLASS cls,
+                                  LPVOID info, DWORD size);
+BOOL   SetFileTime(HANDLE h, const FILETIME *c, const FILETIME *a, const FILETIME *w);
+DWORD  GetFinalPathNameByHandleA(HANDLE h, LPSTR buf, DWORD n, DWORD flags);
+DWORD  GetFinalPathNameByHandleW(HANDLE h, LPWSTR buf, DWORD n, DWORD flags);
+BOOL   CancelIo(HANDLE h);
+BOOL   DeviceIoControl(HANDLE h, DWORD code, LPVOID in, DWORD in_size, LPVOID out,
+                       DWORD out_size, LPDWORD returned, LPOVERLAPPED ov);
+HANDLE FindFirstFileA(LPCSTR pattern, LPWIN32_FIND_DATAA data);
+HANDLE FindFirstFileW(LPCWSTR pattern, LPWIN32_FIND_DATAW data);
+BOOL   FindNextFileA(HANDLE h, LPWIN32_FIND_DATAA data);
+BOOL   FindNextFileW(HANDLE h, LPWIN32_FIND_DATAW data);
+BOOL   FindClose(HANDLE h);
+DWORD  GetFileAttributesA(LPCSTR path);
+DWORD  GetFileAttributesW(LPCWSTR path);
+BOOL   GetFileAttributesExA(LPCSTR path, GET_FILEEX_INFO_LEVELS lvl, LPVOID info);
+BOOL   GetFileAttributesExW(LPCWSTR path, GET_FILEEX_INFO_LEVELS lvl, LPVOID info);
+BOOL   SetFileAttributesA(LPCSTR path, DWORD attr);
+BOOL   SetFileAttributesW(LPCWSTR path, DWORD attr);
+BOOL   CreateDirectoryA(LPCSTR path, LPSECURITY_ATTRIBUTES sa);
+BOOL   CreateDirectoryW(LPCWSTR path, LPSECURITY_ATTRIBUTES sa);
+BOOL   RemoveDirectoryA(LPCSTR path);
+BOOL   RemoveDirectoryW(LPCWSTR path);
+BOOL   DeleteFileA(LPCSTR path);
+BOOL   DeleteFileW(LPCWSTR path);
+BOOL   MoveFileExA(LPCSTR from, LPCSTR to, DWORD flags);
+BOOL   MoveFileExW(LPCWSTR from, LPCWSTR to, DWORD flags);
+BOOL   MoveFileA(LPCSTR from, LPCSTR to);
+BOOL   CopyFileA(LPCSTR from, LPCSTR to, BOOL fail_if_exists);
+BOOL   CopyFileW(LPCWSTR from, LPCWSTR to, BOOL fail_if_exists);
+DWORD  GetModuleFileNameA(HMODULE mod, LPSTR buf, DWORD n);
+DWORD  GetModuleFileNameW(HMODULE mod, LPWSTR buf, DWORD n);
+DWORD  GetCurrentDirectoryA(DWORD n, LPSTR buf);
+DWORD  GetCurrentDirectoryW(DWORD n, LPWSTR buf);
+BOOL   SetCurrentDirectoryA(LPCSTR path);
+BOOL   SetCurrentDirectoryW(LPCWSTR path);
+DWORD  GetFullPathNameA(LPCSTR path, DWORD n, LPSTR buf, LPSTR *file_part);
+BOOL   GetDiskFreeSpaceExA(LPCSTR path, PULARGE_INTEGER avail, PULARGE_INTEGER total,
+                           PULARGE_INTEGER free_bytes);
+BOOL   GetDiskFreeSpaceExW(LPCWSTR path, PULARGE_INTEGER avail, PULARGE_INTEGER total,
+                           PULARGE_INTEGER free_bytes);
+HRESULT SHGetFolderPathW(HWND hwnd, int csidl, HANDLE token, DWORD flags, LPWSTR path);
+HRESULT SHGetFolderPathA(HWND hwnd, int csidl, HANDLE token, DWORD flags, LPSTR path);
+/* host path of a Windows-style path ("Z:\a\b" or "C:\x" or "\a" -> "/a/b"),
+ * resolving existing components case-insensitively; returns out */
+char *w32_host_path(const char *win_path, char *out, size_t out_size);
+/* the Windows-style form ("Z:\...") of a host path; returns out */
+char *w32_win_path(const char *host_path, char *out, size_t out_size);
 
 /* ---- Keyboard + window helpers (stubs on POSIX) --------------------- */
 SHORT GetAsyncKeyState(int vKey);
@@ -254,6 +412,16 @@ int   MessageBoxA(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type);
 #define MB_ICONERROR       0x00000010u
 #define MB_ICONWARNING     0x00000030u
 #define MB_ICONINFORMATION 0x00000040u
+#define MB_ICONQUESTION    0x00000020u
+#define MB_OKCANCEL        0x00000001u
+#define MB_YESNO           0x00000004u
+#define MB_DEFBUTTON2      0x00000100u
+#define MB_TOPMOST         0x00040000u
+#define MB_SETFOREGROUND   0x00010000u
+#define IDOK     1
+#define IDCANCEL 2
+#define IDYES    6
+#define IDNO     7
 
 /* Win32 virtual-key codes (subset the game checks via GetAsyncKeyState) */
 #define VK_LBUTTON   0x01
@@ -280,16 +448,42 @@ int   MessageBoxA(HWND hwnd, LPCSTR text, LPCSTR caption, UINT type);
 #define VK_DOWN      0x28
 #define VK_INSERT    0x2D
 #define VK_DELETE    0x2E
+#define VK_NUMPAD0   0x60
+#define VK_NUMPAD1   0x61
+#define VK_NUMPAD2   0x62
+#define VK_NUMPAD3   0x63
+#define VK_NUMPAD4   0x64
+#define VK_NUMPAD5   0x65
+#define VK_NUMPAD6   0x66
+#define VK_NUMPAD7   0x67
+#define VK_NUMPAD8   0x68
+#define VK_NUMPAD9   0x69
 #define VK_MULTIPLY  0x6A
 #define VK_ADD       0x6B
+#define VK_SEPARATOR 0x6C
 #define VK_SUBTRACT  0x6D
+#define VK_DECIMAL   0x6E
 #define VK_DIVIDE    0x6F
 #define VK_F1        0x70
 #define VK_F2        0x71
 #define VK_F3        0x72
 #define VK_F4        0x73
 #define VK_F5        0x74
+#define VK_F6        0x75
+#define VK_F7        0x76
+#define VK_F8        0x77
+#define VK_F9        0x78
+#define VK_F10       0x79
+#define VK_F11       0x7A
 #define VK_F12       0x7B
+#define VK_NUMLOCK   0x90
+#define VK_SCROLL    0x91
+#define VK_LSHIFT    0xA0
+#define VK_RSHIFT    0xA1
+#define VK_LCONTROL  0xA2
+#define VK_RCONTROL  0xA3
+#define VK_LMENU     0xA4
+#define VK_RMENU     0xA5
 #define VK_OEM_PLUS  0xBB
 #define VK_OEM_COMMA 0xBC
 #define VK_OEM_MINUS 0xBD
@@ -325,7 +519,32 @@ typedef struct _XINPUT_STATE {
     DWORD          dwPacketNumber;
     XINPUT_GAMEPAD Gamepad;
 } XINPUT_STATE;
+typedef struct _XINPUT_VIBRATION {
+    WORD wLeftMotorSpeed;
+    WORD wRightMotorSpeed;
+} XINPUT_VIBRATION, *PXINPUT_VIBRATION;
+typedef struct _XINPUT_CAPABILITIES {
+    BYTE Type, SubType;
+    WORD Flags;
+    XINPUT_GAMEPAD Gamepad;
+    XINPUT_VIBRATION Vibration;
+} XINPUT_CAPABILITIES;
 DWORD XInputGetState(DWORD idx, XINPUT_STATE *state);
+DWORD XInputSetState(DWORD idx, XINPUT_VIBRATION *v);
+DWORD XInputGetCapabilities(DWORD idx, DWORD flags, XINPUT_CAPABILITIES *caps);
+/* fed by the host window thread (src/video/fb_present_sdl.c) */
+void  w32_input_set_key(int vk, int down);
+void  w32_input_set_pad(int idx, const XINPUT_STATE *st, int connected);
+LONG  w32_input_get_rumble(int idx, XINPUT_VIBRATION *v);
+void  w32_set_foreground_window(HWND h);
+/* affinity of threads CreateThread starts from now on (0 = the process's
+ * initial affinity); see win32_compat.c */
+void  w32_set_default_thread_affinity(DWORD_PTR mask);
+#include <pthread.h>
+int   w32_thread_pthread(HANDLE h, pthread_t *out);
+SHORT GetKeyState(int vKey);
+HWND  GetForegroundWindow(void);
+DWORD GetWindowThreadProcessId(HWND h, LPDWORD pid);
 
 #define XINPUT_GAMEPAD_DPAD_UP        0x0001
 #define XINPUT_GAMEPAD_DPAD_DOWN      0x0002
@@ -406,11 +625,17 @@ VOID RtlUnwind(PVOID TargetFrame, PVOID TargetIp,
                PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue);
 VOID RaiseException(DWORD code, DWORD flags, DWORD nargs, const ULONG_PTR *args);
 
-/* Win32 VEH: opaque PEXCEPTION_POINTERS + AddVectoredExceptionHandler stub.
- * On Linux the equivalent goes through sigaction(SIGSEGV/SIGFPE) +
- * ucontext_t; for now we accept the registration and never fire. */
-typedef void *PEXCEPTION_POINTERS;
+/* Win32 VEH on POSIX (docs Update 677): SIGSEGV/SIGBUS/SIGILL/SIGFPE are
+ * turned into an EXCEPTION_RECORD + CONTEXT (xbox_winnt.h), the registered
+ * handlers run in order, and the CONTEXT they may have changed (MMIO
+ * emulation steps the PC) is written back to the signal's ucontext. */
+typedef struct _EXCEPTION_POINTERS {
+    PEXCEPTION_RECORD ExceptionRecord;
+    PCONTEXT          ContextRecord;
+} EXCEPTION_POINTERS, *PEXCEPTION_POINTERS;
 typedef LONG (*PVECTORED_EXCEPTION_HANDLER)(PEXCEPTION_POINTERS info);
+typedef LONG (*LPTOP_LEVEL_EXCEPTION_FILTER)(PEXCEPTION_POINTERS info);
+LPTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(LPTOP_LEVEL_EXCEPTION_FILTER f);
 PVOID AddVectoredExceptionHandler(ULONG FirstHandler, PVECTORED_EXCEPTION_HANDLER Handler);
 ULONG RemoveVectoredExceptionHandler(PVOID Handle);
 
@@ -532,6 +757,288 @@ static inline MMRESULT waveOutWrite(HWAVEOUT h, WAVEHDR *hdr, UINT sz)
 { (void)h;(void)hdr;(void)sz; return MMSYSERR_NOERROR; }
 static inline MMRESULT waveOutReset(HWAVEOUT h) { (void)h; return MMSYSERR_NOERROR; }
 static inline MMRESULT waveOutClose(HWAVEOUT h) { (void)h; return MMSYSERR_NOERROR; }
+
+#ifdef __cplusplus
+}
+#endif
+
+/* ===================================================================== */
+/* Additions for the SCDA ARM port (docs Update 677, win32_compat_ext.c)  */
+/* ===================================================================== */
+#include <stdio.h>
+#include <strings.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef DWORD_PTR *PDWORD_PTR;
+
+/* slim reader/writer lock -- a pthread_rwlock_t behind one pointer */
+typedef struct { PVOID Ptr; } SRWLOCK, *PSRWLOCK;
+#define SRWLOCK_INIT { NULL }
+VOID InitializeSRWLock(PSRWLOCK l);
+VOID AcquireSRWLockExclusive(PSRWLOCK l);
+VOID AcquireSRWLockShared(PSRWLOCK l);
+VOID ReleaseSRWLockExclusive(PSRWLOCK l);
+VOID ReleaseSRWLockShared(PSRWLOCK l);
+BOOLEAN TryAcquireSRWLockExclusive(PSRWLOCK l);
+BOOLEAN TryAcquireSRWLockShared(PSRWLOCK l);
+BOOL SleepConditionVariableSRW(PCONDITION_VARIABLE cv, PSRWLOCK l, DWORD ms, ULONG flags);
+
+/* one-time initialisation */
+typedef struct { volatile LONG State; PVOID Context; } INIT_ONCE, *PINIT_ONCE, *LPINIT_ONCE;
+#define INIT_ONCE_STATIC_INIT { 0, NULL }
+typedef BOOL (*PINIT_ONCE_FN)(PINIT_ONCE once, PVOID param, PVOID *context);
+BOOL InitOnceExecuteOnce(PINIT_ONCE once, PINIT_ONCE_FN fn, PVOID param, LPVOID *context);
+
+/* thread access rights and context */
+#ifndef THREAD_ALL_ACCESS
+#define THREAD_TERMINATE            0x0001u
+#define THREAD_SUSPEND_RESUME       0x0002u
+#define THREAD_GET_CONTEXT          0x0008u
+#define THREAD_SET_CONTEXT          0x0010u
+#define THREAD_SET_INFORMATION      0x0020u
+#define THREAD_QUERY_INFORMATION    0x0040u
+#define THREAD_ALL_ACCESS           0x1FFFFFu
+#endif
+#ifndef THREAD_PRIORITY_ERROR_RETURN
+#define THREAD_PRIORITY_ERROR_RETURN 0x7FFFFFFF
+#endif
+HANDLE OpenThread(DWORD access, BOOL inherit, DWORD tid);
+BOOL GetThreadContext(HANDLE thread, PCONTEXT ctx);   /* FALSE: no thread hijack on POSIX */
+BOOL SetThreadContext(HANDLE thread, const CONTEXT *ctx);
+DWORD_PTR SetThreadAffinityMask(HANDLE thread, DWORD_PTR mask);
+BOOL SetThreadStackGuarantee(PULONG size);
+HRESULT SetThreadDescription(HANDLE thread, LPCWSTR name);
+BOOL GetProcessAffinityMask(HANDLE proc, PDWORD_PTR proc_mask, PDWORD_PTR sys_mask);
+BOOL SetPriorityClass(HANDLE proc, DWORD cls);
+#ifndef HIGH_PRIORITY_CLASS
+#define NORMAL_PRIORITY_CLASS 0x20u
+#define HIGH_PRIORITY_CLASS   0x80u
+#define ABOVE_NORMAL_PRIORITY_CLASS 0x8000u
+#endif
+
+/* waitable timers (an event set by a helper thread at the due time) */
+#ifndef TIMER_ALL_ACCESS
+#define TIMER_ALL_ACCESS 0x1F0003u
+#endif
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x2u
+#define CREATE_WAITABLE_TIMER_MANUAL_RESET    0x1u
+#endif
+typedef VOID (*PTIMERAPCROUTINE)(LPVOID arg, DWORD low, DWORD high);
+HANDLE CreateWaitableTimerA(LPSECURITY_ATTRIBUTES sa, BOOL manual, LPCSTR name);
+HANDLE CreateWaitableTimerW(LPSECURITY_ATTRIBUTES sa, BOOL manual, LPCWSTR name);
+HANDLE CreateWaitableTimerExW(LPSECURITY_ATTRIBUTES sa, LPCWSTR name, DWORD flags, DWORD access);
+BOOL SetWaitableTimer(HANDLE t, const LARGE_INTEGER *due, LONG period_ms,
+                      PTIMERAPCROUTINE apc, LPVOID arg, BOOL resume);
+BOOL CancelWaitableTimer(HANDLE t);
+#define SetWaitableTimerEx(t, due, period, apc, arg, wake, delay)     SetWaitableTimer((t), (due), (period), (apc), (arg), FALSE)
+
+/* processes: the title relaunch starts a new instance of this executable */
+typedef struct _STARTUPINFOA { DWORD cb; LPSTR lpReserved, lpDesktop, lpTitle;
+    DWORD dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars,
+          dwFillAttribute, dwFlags; WORD wShowWindow, cbReserved2;
+    LPBYTE lpReserved2; HANDLE hStdInput, hStdOutput, hStdError; }
+    STARTUPINFOA, *LPSTARTUPINFOA;
+typedef struct _STARTUPINFOW { DWORD cb; LPWSTR lpReserved, lpDesktop, lpTitle;
+    DWORD dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars,
+          dwFillAttribute, dwFlags; WORD wShowWindow, cbReserved2;
+    LPBYTE lpReserved2; HANDLE hStdInput, hStdOutput, hStdError; }
+    STARTUPINFOW, *LPSTARTUPINFOW;
+typedef struct _PROCESS_INFORMATION { HANDLE hProcess, hThread;
+    DWORD dwProcessId, dwThreadId; } PROCESS_INFORMATION, *LPPROCESS_INFORMATION;
+BOOL CreateProcessA(LPCSTR app, LPSTR cmdline, LPSECURITY_ATTRIBUTES pa,
+                    LPSECURITY_ATTRIBUTES ta, BOOL inherit, DWORD flags, LPVOID env,
+                    LPCSTR cwd, LPSTARTUPINFOA si, LPPROCESS_INFORMATION pi);
+BOOL CreateProcessW(LPCWSTR app, LPWSTR cmdline, LPSECURITY_ATTRIBUTES pa,
+                    LPSECURITY_ATTRIBUTES ta, BOOL inherit, DWORD flags, LPVOID env,
+                    LPCWSTR cwd, LPSTARTUPINFOW si, LPPROCESS_INFORMATION pi);
+HANDLE OpenProcess(DWORD access, BOOL inherit, DWORD pid);
+BOOL GetExitCodeProcess(HANDLE proc, LPDWORD code);
+LPSTR GetCommandLineA(void);
+LPWSTR GetCommandLineW(void);
+
+/* memory constants */
+#ifndef MEM_FREE
+#define MEM_FREE    0x10000u
+#define MEM_PRIVATE 0x20000u
+#define MEM_MAPPED  0x40000u
+#define MEM_IMAGE   0x1000000u
+#endif
+#ifndef MAXIMUM_WAIT_OBJECTS
+#define MAXIMUM_WAIT_OBJECTS 64
+#endif
+#ifndef FILE_BEGIN
+#define FILE_BEGIN   0
+#define FILE_CURRENT 1
+#define FILE_END     2
+#endif
+
+/* MSVC "secure" CRT on POSIX */
+#ifndef _TRUNCATE
+#define _TRUNCATE ((size_t)-1)
+#endif
+#ifndef _SH_DENYNO
+#define _SH_DENYNO 0x40
+#define _SH_DENYWR 0x20
+#endif
+typedef int errno_t;
+errno_t strcpy_s(char *dst, size_t size, const char *src);
+errno_t strncpy_s(char *dst, size_t size, const char *src, size_t count);
+errno_t strcat_s(char *dst, size_t size, const char *src);
+errno_t strncat_s(char *dst, size_t size, const char *src, size_t count);
+int sprintf_s(char *dst, size_t size, const char *fmt, ...);
+int _snprintf_s(char *dst, size_t size, size_t count, const char *fmt, ...);
+int vsprintf_s(char *dst, size_t size, const char *fmt, va_list ap);
+int _vsnprintf_s(char *dst, size_t size, size_t count, const char *fmt, va_list ap);
+errno_t fopen_s(FILE **fp, const char *path, const char *mode);
+FILE *_fsopen(const char *path, const char *mode, int shflag);
+errno_t _putenv_s(const char *name, const char *value);
+errno_t _dupenv_s(char **buf, size_t *len, const char *name);
+errno_t getenv_s(size_t *len, char *buf, size_t size, const char *name);
+errno_t memcpy_s(void *dst, size_t dsize, const void *src, size_t count);
+/* _stricmp/_strnicmp are real functions (win32_compat.c); a macro onto
+ * strcasecmp turned their definitions into a self-recursive strcasecmp */
+#ifndef stricmp
+#define stricmp   _stricmp
+#define strnicmp  _strnicmp
+#endif
+#ifndef _countof
+#define _countof(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+#ifndef __debugbreak
+#define __debugbreak() __builtin_trap()
+#endif
+
+/* 64-bit interlocked operations */
+static inline LONG64 InterlockedIncrement64(volatile LONG64 *p) { return __atomic_add_fetch(p, 1, __ATOMIC_SEQ_CST); }
+static inline LONG64 InterlockedDecrement64(volatile LONG64 *p) { return __atomic_sub_fetch(p, 1, __ATOMIC_SEQ_CST); }
+static inline LONG64 InterlockedExchange64(volatile LONG64 *p, LONG64 v) { return __atomic_exchange_n(p, v, __ATOMIC_SEQ_CST); }
+static inline LONG64 InterlockedExchangeAdd64(volatile LONG64 *p, LONG64 v) { return __atomic_fetch_add(p, v, __ATOMIC_SEQ_CST); }
+static inline LONG64 InterlockedAdd64(volatile LONG64 *p, LONG64 v) { return __atomic_add_fetch(p, v, __ATOMIC_SEQ_CST); }
+static inline LONG64 InterlockedCompareExchange64(volatile LONG64 *p, LONG64 x, LONG64 c)
+{
+    __atomic_compare_exchange_n(p, &c, x, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return c;
+}
+/* MSVC _Interlocked* intrinsics. LONG is 32 bit as on Windows; callers that
+ * cast to "long volatile *" (64 bit on LP64) still get a 32-bit operation,
+ * which is what their Windows build does. */
+#define _InterlockedOr(p, v)    __atomic_fetch_or((volatile LONG *)(p), (LONG)(v), __ATOMIC_SEQ_CST)
+#define _InterlockedAnd(p, v)   __atomic_fetch_and((volatile LONG *)(p), (LONG)(v), __ATOMIC_SEQ_CST)
+#define _InterlockedExchange(p, v) __atomic_exchange_n((volatile LONG *)(p), (LONG)(v), __ATOMIC_SEQ_CST)
+#define _InterlockedIncrement(p) __atomic_add_fetch((volatile LONG *)(p), 1, __ATOMIC_SEQ_CST)
+#define _InterlockedDecrement(p) __atomic_sub_fetch((volatile LONG *)(p), 1, __ATOMIC_SEQ_CST)
+#define _InterlockedExchangeAdd(p, v) __atomic_fetch_add((volatile LONG *)(p), (LONG)(v), __ATOMIC_SEQ_CST)
+#define _InterlockedCompareExchange(p, x, c) InterlockedCompareExchange((volatile LONG *)(p), (LONG)(x), (LONG)(c))
+#define _InterlockedIncrement64(p) InterlockedIncrement64((volatile LONG64 *)(p))
+#define _InterlockedExchangeAdd64(p, v) InterlockedExchangeAdd64((volatile LONG64 *)(p), (LONG64)(v))
+#define _InterlockedExchange64(p, v) InterlockedExchange64((volatile LONG64 *)(p), (LONG64)(v))
+#define _InterlockedCompareExchange64(p, x, c) InterlockedCompareExchange64((volatile LONG64 *)(p), (LONG64)(x), (LONG64)(c))
+static inline PVOID InterlockedExchangePointer(PVOID volatile *p, PVOID v) { return __atomic_exchange_n(p, v, __ATOMIC_SEQ_CST); }
+#ifndef _ReturnAddress
+#define _ReturnAddress() __builtin_return_address(0)
+#endif
+USHORT RtlCaptureStackBackTrace(ULONG skip, ULONG count, PVOID *frames, PULONG hash);
+BOOL   GetCursorPos(LPPOINT p);
+BOOL   ScreenToClient(HWND hwnd, LPPOINT p);
+#ifndef _ReadWriteBarrier
+#define _ReadWriteBarrier() __asm__ __volatile__("" ::: "memory")
+#endif
+#ifndef MemoryBarrier
+#define MemoryBarrier() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+#endif
+#ifndef YieldProcessor
+#if defined(__aarch64__)
+#define YieldProcessor() __asm__ __volatile__("yield")
+#elif defined(__x86_64__) || defined(__i386__)
+#define YieldProcessor() __builtin_ia32_pause()
+#else
+#define YieldProcessor() ((void)0)
+#endif
+#endif
+
+/* WaitOnAddress family on futexes */
+BOOL  WaitOnAddress(volatile VOID *addr, PVOID compare, SIZE_T size, DWORD ms);
+VOID  WakeByAddressSingle(PVOID addr);
+VOID  WakeByAddressAll(PVOID addr);
+
+/* further process / thread / debug calls */
+DWORD   GetThreadId(HANDLE thread);
+HMODULE GetModuleHandleA(LPCSTR name);
+HMODULE GetModuleHandleW(LPCWSTR name);
+void   *GetProcAddress(HMODULE mod, LPCSTR name);
+/* shared objects through dlopen; a Windows-style path is mapped */
+#define LOAD_WITH_ALTERED_SEARCH_PATH 0x8u
+HMODULE LoadLibraryA(LPCSTR path);
+HMODULE LoadLibraryExW(LPCWSTR path, HANDLE file, DWORD flags);
+BOOL    FreeLibrary(HMODULE mod);
+BOOL    SetEnvironmentVariableA(LPCSTR name, LPCSTR value);
+VOID    GetSystemTimePreciseAsFileTime(LPFILETIME ft);
+BOOL    IsDebuggerPresent(void);
+VOID    DebugBreak(void);
+BOOL    IsWindowVisible(HWND hwnd);
+BOOL    ShowWindow(HWND hwnd, int cmd);
+HWND    GetConsoleWindow(void);
+DWORD   GetConsoleProcessList(LPDWORD list, DWORD count);
+BOOL    GetProcessTimes(HANDLE process, LPFILETIME creation, LPFILETIME exit_time,
+                        LPFILETIME kernel, LPFILETIME user);
+#ifndef SW_HIDE
+#define SW_HIDE       0
+#define SW_SHOWNORMAL 1
+#define SW_SHOW       5
+#endif
+#ifndef PAGE_GUARD
+#define PAGE_GUARD    0x100u
+#endif
+BOOL    AllowSetForegroundWindow(DWORD pid);
+int     SHCreateDirectoryExW(HWND hwnd, LPCWSTR path, LPSECURITY_ATTRIBUTES sa);
+errno_t _strlwr_s(char *s, size_t size);
+#ifndef strtok_s
+#define strtok_s strtok_r
+#endif
+
+/* MSVC printf semantics ("%S" = 16-bit wide string, I64 prefixes) */
+int w32_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
+int w32_vfprintf(FILE *f, const char *fmt, va_list ap);
+int w32_fprintf(FILE *f, const char *fmt, ...);
+/* fopen with a Windows-style path (see w32_host_path) */
+FILE *w32_fopen(const char *path, const char *mode);
+#ifndef W32_NO_FOPEN_MACRO
+#define fopen w32_fopen
+#endif
+
+/* 16-bit wide CRT. With -fshort-wchar (POSIX builds of this tree) L"..." is
+ * 16 bit like WCHAR, and the wcs* names the runtime uses are routed here,
+ * away from glibc's 4-byte implementations. */
+#if defined(__SIZEOF_WCHAR_T__) && __SIZEOF_WCHAR_T__ == 2
+#include <wchar.h>
+int    xbox_wcscmp(const WCHAR *a, const WCHAR *b);
+int    xbox_wcsicmp(const WCHAR *a, const WCHAR *b);
+int    xbox_wcsnicmp(const WCHAR *a, const WCHAR *b, size_t n);
+WCHAR *xbox_wcschr(const WCHAR *s, WCHAR c);
+WCHAR *xbox_wcsrchr(const WCHAR *s, WCHAR c);
+errno_t xbox_wcscpy_s(WCHAR *dst, size_t size, const WCHAR *src);
+errno_t xbox_wcsncpy_s(WCHAR *dst, size_t size, const WCHAR *src, size_t count);
+errno_t xbox_wcscat_s(WCHAR *dst, size_t size, const WCHAR *src);
+int    xbox_swprintf_s(WCHAR *buf, size_t size, const WCHAR *fmt, ...);
+int    xbox_vswprintf_s(WCHAR *buf, size_t size, const WCHAR *fmt, va_list ap);
+#define wcslen     xbox_wcslen
+#define wcscmp     xbox_wcscmp
+#define wcsncmp    xbox_wcsncmp
+#define wcscpy     xbox_wcscpy
+#define wcscat     xbox_wcscat
+#define wcschr     xbox_wcschr
+#define wcsrchr    xbox_wcsrchr
+#define _wcsicmp   xbox_wcsicmp
+#define _wcsnicmp  xbox_wcsnicmp
+#define wcscpy_s   xbox_wcscpy_s
+#define wcsncpy_s  xbox_wcsncpy_s
+#define wcscat_s   xbox_wcscat_s
+#define swprintf_s xbox_swprintf_s
+#define vswprintf_s xbox_vswprintf_s
+#endif
 
 #ifdef __cplusplus
 }

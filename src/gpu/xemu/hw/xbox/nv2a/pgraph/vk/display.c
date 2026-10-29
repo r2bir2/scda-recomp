@@ -437,10 +437,21 @@ static void create_display_pipeline(PGRAPHState *pg)
 {
     PGRAPHVkState *r = pg->vk_renderer_state;
 
+    /* Only at a render scale above 1 (docs Update 667): at 1x the pass ran
+     * on the 640x480 frame that is then stretched about 2-3x to the window,
+     * so its blend smeared HUD digits and icons into blocks. The scale comes
+     * from RECOMP_SURFACE_SCALE because this runs before the renderer's
+     * scale factor is set. RECOMP_FXAA=0 off, =2 also at 1x. */
     static int fxaa = -1;
     if (fxaa < 0) {
         const char *e = getenv("RECOMP_FXAA");
-        fxaa = !(e && e[0] == '0');
+        const char *sc = getenv("RECOMP_SURFACE_SCALE");
+        int scale = sc ? atoi(sc) : 1;
+        if (pg->surface_scale_factor > scale)
+            scale = pg->surface_scale_factor;
+        fxaa = e && e[0] == '0' ? 0 : e && e[0] == '2' ? 1 : scale > 1;
+        fprintf(stderr, "[VK] display anti-aliasing %s (render scale %d)\n",
+                fxaa ? "on" : "off", scale);
     }
     r->display.display_frag =
         pgraph_vk_create_shader_module_from_glsl(
@@ -615,13 +626,21 @@ static void destroy_current_display_image(PGRAPHState *pg)
     glDeleteTextures(1, &d->gl_texture_id);
     d->gl_texture_id = 0;
 
-    glDeleteMemoryObjectsEXT(1, &d->gl_memory_obj);
-    d->gl_memory_obj = 0;
-
+    if (d->readback) {
+        vkUnmapMemory(r->device, d->rb_memory);
+        vkDestroyBuffer(r->device, d->rb_buffer, NULL);
+        vkFreeMemory(r->device, d->rb_memory, NULL);
+        d->rb_mapped = NULL;
+        d->rb_buffer = VK_NULL_HANDLE;
+        d->rb_memory = VK_NULL_HANDLE;
+    } else {
+        glDeleteMemoryObjectsEXT(1, &d->gl_memory_obj);
+        d->gl_memory_obj = 0;
 #ifdef WIN32
-    CloseHandle(d->handle);
-    d->handle = 0;
+        CloseHandle(d->handle);
+        d->handle = 0;
 #endif
+    }
 #endif
 
     vkDestroyImageView(r->device, d->image_view, NULL);
@@ -639,6 +658,9 @@ static void destroy_current_display_image(PGRAPHState *pg)
 // FIXME: We may need to use two images. One for actually rendering display,
 // and another for GL in the correct tiling mode
 
+/* set once a GL import of the display image has failed (docs Update 674) */
+static bool s_display_readback_forced;
+
 static void create_display_image(PGRAPHState *pg, int width, int height)
 {
     PGRAPHVkState *r = pg->vk_renderer_state;
@@ -652,7 +674,22 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
     bool use_optimal_tiling = true;
 
 #if HAVE_EXTERNAL_MEMORY
-    GLint num_tiling_types;
+    /* docs Update 675: a GL without memory-object import (Mali/Panfrost GL
+     * 3.1 under Wine) can only take the CPU readback path */
+#ifndef WIN32
+    /* Linux (ARM port, docs Update 677): no fd import in the GL loader;
+     * the display always goes through CPU readback */
+    s_display_readback_forced = true;
+#endif
+    if (!s_display_readback_forced &&
+        (!r->display_interop_enabled || !glCreateMemoryObjectsEXT ||
+         !glImportMemoryWin32HandleEXT || !glGetInternalformativ)) {
+        fprintf(stderr, "[VK] GL has no memory-object import -- using CPU "
+                "readback for the display\n");
+        s_display_readback_forced = true;
+    }
+    GLint num_tiling_types = 0;
+    if (!s_display_readback_forced)
     glGetInternalformativ(GL_TEXTURE_2D, gl_internal_format,
                           GL_NUM_TILING_TYPES_EXT, 1, &num_tiling_types);
     // XXX: Apparently on AMD GL_OPTIMAL_TILING_EXT is reported to be
@@ -667,6 +704,7 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
     if (num_tiling_types < 0) {
         num_tiling_types = 0;
     }
+    if (num_tiling_types > 0)
     glGetInternalformativ(GL_TEXTURE_2D, gl_internal_format,
                           GL_TILING_TYPES_EXT, num_tiling_types, tiling_types);
     for (int i = 0; i < num_tiling_types; i++) {
@@ -702,7 +740,50 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
         .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR,
 #endif
     };
-    image_create_info.pNext = &external_memory_image_create_info;
+    /* readback already known (docs Update 675): a plain image from the start */
+    if (!s_display_readback_forced)
+        image_create_info.pNext = &external_memory_image_create_info;
+
+    /* xboxrecomp (docs Update 671): some drivers (NVIDIA GTX 960M under
+     * Optimus) only export such an image from a dedicated allocation
+     * (DEDICATED_ONLY); the plain allocation failed there with
+     * VK_ERROR_OUT_OF_DEVICE_MEMORY right at the first frame. Ask the driver
+     * and allocate (and import into GL) dedicated when it says so.
+     * RECOMP_VK_DISPLAY_DEDICATED=1 forces it. */
+    bool dedicated = false;
+    if (!s_display_readback_forced) {
+        VkPhysicalDeviceExternalImageFormatInfo ext_info = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO,
+            .handleType = external_memory_image_create_info.handleTypes,
+        };
+        VkPhysicalDeviceImageFormatInfo2 fmt_info = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+            .pNext = &ext_info,
+            .format = image_create_info.format,
+            .type = image_create_info.imageType,
+            .tiling = image_create_info.tiling,
+            .usage = image_create_info.usage,
+        };
+        VkExternalImageFormatProperties ext_props = {
+            .sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES,
+        };
+        VkImageFormatProperties2 props = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
+            .pNext = &ext_props,
+        };
+        if (vkGetPhysicalDeviceImageFormatProperties2(
+                r->physical_device, &fmt_info, &props) == VK_SUCCESS) {
+            dedicated = (ext_props.externalMemoryProperties.externalMemoryFeatures &
+                         VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT) != 0;
+        }
+        const char *e = getenv("RECOMP_VK_DISPLAY_DEDICATED");
+        if (e && e[0] == '1')
+            dedicated = true;
+        static int logged;
+        if (!logged++)
+            fprintf(stderr, "[VK] display image: %s allocation\n",
+                    dedicated ? "dedicated" : "shared");
+    }
 
     VK_CHECK(vkCreateImage(r->device, &image_create_info, NULL, &d->image));
 
@@ -729,8 +810,125 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
             ,
     };
     alloc_info.pNext = &export_memory_alloc_info;
+    VkMemoryDedicatedAllocateInfo dedicated_info = {
+        .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+        .image = d->image,
+    };
+    if (dedicated) {
+        export_memory_alloc_info.pNext = &dedicated_info;
+    }
 
-    VK_CHECK(vkAllocateMemory(r->device, &alloc_info, NULL, &d->memory));
+    /* RECOMP_VK_DISPLAY_READBACK=1: skip the export (test of the fallback) */
+    const char *force_rb_env = getenv("RECOMP_VK_DISPLAY_READBACK");
+    bool force_rb = (force_rb_env && force_rb_env[0] == '1') ||
+                    s_display_readback_forced;
+    VkResult alloc_result = force_rb ? VK_ERROR_OUT_OF_DEVICE_MEMORY :
+        vkAllocateMemory(r->device, &alloc_info, NULL, &d->memory);
+    if (alloc_result != VK_SUCCESS && !dedicated && !force_rb) {
+        /* the driver did not say DEDICATED_ONLY but refused anyway */
+        fprintf(stderr, "[VK] display image: shared allocation failed (%d), "
+                "retrying dedicated\n", (int)alloc_result);
+        dedicated = true;
+        export_memory_alloc_info.pNext = &dedicated_info;
+        alloc_result = vkAllocateMemory(r->device, &alloc_info, NULL, &d->memory);
+    }
+    d->readback = false;
+    if (alloc_result != VK_SUCCESS) {
+        /* Exporting refused altogether (docs Update 672): render into a
+         * plain image and hand each frame to GL through host memory
+         * (render_display copies it out after its submission completes). */
+        static int rb_logged;
+        if (force_rb) {
+            if (!rb_logged++)
+                fprintf(stderr, "[VK] display image: CPU readback (forced)\n");
+        } else {
+            fprintf(stderr, "[VK] display image memory (%llu bytes, type %u, %s) "
+                    "failed: %d -- using CPU readback for the display\n",
+                    (unsigned long long)alloc_info.allocationSize,
+                    alloc_info.memoryTypeIndex,
+                    dedicated ? "dedicated" : "shared", (int)alloc_result);
+        }
+        d->readback = true;
+        vkDestroyImage(r->device, d->image, NULL);
+        image_create_info.pNext = NULL;
+        image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_create_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        VK_CHECK(vkCreateImage(r->device, &image_create_info, NULL, &d->image));
+        vkGetImageMemoryRequirements(r->device, d->image, &memory_requirements);
+        VkMemoryAllocateInfo plain_alloc = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = memory_requirements.size,
+            .memoryTypeIndex = pgraph_vk_get_memory_type(
+                pg, memory_requirements.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT),
+        };
+        /* VRAM may really be full: try every other permitted memory type */
+        VkResult plain_result =
+            vkAllocateMemory(r->device, &plain_alloc, NULL, &d->memory);
+        if (plain_result != VK_SUCCESS) {
+            VkPhysicalDeviceMemoryProperties mp;
+            vkGetPhysicalDeviceMemoryProperties(r->physical_device, &mp);
+            for (uint32_t i = 0; i < mp.memoryTypeCount &&
+                                 plain_result != VK_SUCCESS; i++) {
+                if (!(memory_requirements.memoryTypeBits & (1u << i)) ||
+                    i == plain_alloc.memoryTypeIndex) {
+                    continue;
+                }
+                plain_alloc.memoryTypeIndex = i;
+                plain_result =
+                    vkAllocateMemory(r->device, &plain_alloc, NULL, &d->memory);
+            }
+            fprintf(stderr, "[VK] display image fallback memory type %u: %d\n",
+                    plain_alloc.memoryTypeIndex, (int)plain_result);
+        }
+        VK_CHECK(plain_result);
+
+        VkBufferCreateInfo buf_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = (VkDeviceSize)width * height * 4,
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        };
+        VK_CHECK(vkCreateBuffer(r->device, &buf_info, NULL, &d->rb_buffer));
+        VkMemoryRequirements buf_req;
+        vkGetBufferMemoryRequirements(r->device, d->rb_buffer, &buf_req);
+        /* docs Update 677: the CPU reads this buffer every frame. The first
+         * HOST_VISIBLE|COHERENT type is often uncached (write-combined, or
+         * VRAM behind the PCIe BAR): reading 5 MB from it cost 30-40 ms per
+         * frame -- videos fell to 7 fps even on an RTX 3090. Prefer cached
+         * memory; non-coherent cached memory is invalidated before reading. */
+        uint32_t rb_type = pgraph_vk_get_memory_type(
+            pg, buf_req.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+        d->rb_noncoherent = false;
+        if (rb_type == 0xFFFFFFFF) {
+            rb_type = pgraph_vk_get_memory_type(
+                pg, buf_req.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+            d->rb_noncoherent = rb_type != 0xFFFFFFFF;
+        }
+        if (rb_type == 0xFFFFFFFF) {
+            rb_type = pgraph_vk_get_memory_type(
+                pg, buf_req.memoryTypeBits,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        }
+        fprintf(stderr, "[VK] display readback buffer: memory type %u (%s)\n",
+                rb_type, d->rb_noncoherent ? "cached, non-coherent" :
+                         "host-visible");
+        VkMemoryAllocateInfo buf_alloc = {
+            .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = buf_req.size,
+            .memoryTypeIndex = rb_type,
+        };
+        VK_CHECK(vkAllocateMemory(r->device, &buf_alloc, NULL, &d->rb_memory));
+        VK_CHECK(vkBindBufferMemory(r->device, d->rb_buffer, d->rb_memory, 0));
+        VK_CHECK(vkMapMemory(r->device, d->rb_memory, 0, VK_WHOLE_SIZE, 0,
+                             &d->rb_mapped));
+    }
     VK_CHECK(vkBindImageMemory(r->device, d->image, d->memory, 0));
 
     // Create Image View
@@ -748,6 +946,20 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
 
 #if HAVE_EXTERNAL_MEMORY
 
+    if (d->readback) {
+        glGenTextures(1, &d->gl_texture_id);
+        glBindTexture(GL_TEXTURE_2D, d->gl_texture_id);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, NULL);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        d->width = width;
+        d->height = height;
+        create_frame_buffer(pg);
+        return;
+    }
+
 #ifdef WIN32
 
     VkMemoryGetWin32HandleInfoKHR handle_info = {
@@ -758,8 +970,29 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
     VK_CHECK(vkGetMemoryWin32HandleKHR(r->device, &handle_info, &d->handle));
 
     glCreateMemoryObjectsEXT(1, &d->gl_memory_obj);
+    if (dedicated && glMemoryObjectParameterivEXT) {
+        GLint yes = GL_TRUE;
+        glMemoryObjectParameterivEXT(d->gl_memory_obj,
+                                     GL_DEDICATED_MEMORY_OBJECT_EXT, &yes);
+    }
     glImportMemoryWin32HandleEXT(d->gl_memory_obj, memory_requirements.size, GL_HANDLE_TYPE_OPAQUE_WIN32_EXT, d->handle);
-    assert(glGetError() == GL_NO_ERROR);
+    GLenum import_err = glGetError();
+    const char *fail_env = getenv("RECOMP_VK_DISPLAY_IMPORT_FAIL"); /* test */
+    if (fail_env && fail_env[0] == '1' && import_err == GL_NO_ERROR)
+        import_err = GL_INVALID_OPERATION;
+    if (import_err != GL_NO_ERROR) {
+        /* docs Update 674: the GL window can sit on a different GPU than
+         * Vulkan (laptop: GL on Intel, Vulkan on NVIDIA after the EXE was
+         * moved and lost its per-path GPU preference). Sharing is then
+         * impossible; drop this image and use CPU readback from now on. */
+        fprintf(stderr, "[VK] GL import of the display image failed (0x%x, GL "
+                "on '%s') -- using CPU readback for the display\n",
+                import_err, (const char *)glGetString(GL_RENDERER));
+        s_display_readback_forced = true;
+        destroy_current_display_image(pg);
+        create_display_image(pg, width, height);
+        return;
+    }
 
 #else
 
@@ -770,11 +1003,9 @@ static void create_display_image(PGRAPHState *pg, int width, int height)
     };
     VK_CHECK(vkGetMemoryFdKHR(r->device, &fd_info, &d->fd));
 
-    glCreateMemoryObjectsEXT(1, &d->gl_memory_obj);
-    glImportMemoryFdEXT(d->gl_memory_obj, memory_requirements.size,
-                        GL_HANDLE_TYPE_OPAQUE_FD_EXT, d->fd);
-    assert(glIsMemoryObjectEXT(d->gl_memory_obj));
-    assert(glGetError() == GL_NO_ERROR);
+    /* xboxrecomp: unreachable, Linux forces readback above (docs Update
+     * 677); the GL loader has no glImportMemoryFdEXT */
+    abort();
 
 #endif // WIN32
 
@@ -1069,14 +1300,77 @@ static void render_display(PGRAPHState *pg, SurfaceBinding *surface)
                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    pgraph_vk_transition_image_layout(pg, cmd, disp->image,
-                                      VK_FORMAT_R8G8B8_UNORM,
-                                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (disp->readback) {
+        pgraph_vk_transition_image_layout(pg, cmd, disp->image,
+                                          VK_FORMAT_R8G8B8A8_UNORM,
+                                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        VkBufferImageCopy copy = {
+            .imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .imageSubresource.layerCount = 1,
+            .imageExtent = { disp->width, disp->height, 1 },
+        };
+        vkCmdCopyImageToBuffer(cmd, disp->image,
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               disp->rb_buffer, 1, &copy);
+        /* stays TRANSFER_SRC: only the copy reads it, and the next frame
+         * starts from UNDEFINED */
+    } else {
+        pgraph_vk_transition_image_layout(pg, cmd, disp->image,
+                                          VK_FORMAT_R8G8B8_UNORM,
+                                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
 
     pgraph_vk_end_debug_marker(r, cmd);
+    /* RECOMP_VK_DISPLAY_TIMING=1 (ARM port, docs Update 678): time of the
+     * display submit+wait and of the CPU readback upload into GL, summed
+     * over 60 frames */
+    static int disp_timing = -1;
+    static int64_t t_submit_us, t_upload_us;
+    static int t_frames;
+    int64_t t0 = 0, t1 = 0;
+    if (disp_timing < 0) {
+        const char *e = getenv("RECOMP_VK_DISPLAY_TIMING");
+        disp_timing = e && e[0] == '1';
+    }
+    if (disp_timing)
+        t0 = nv2a_recomp_vk_now_us();
     pgraph_vk_end_single_time_commands(pg, cmd, VK_AUX_DISPLAY);
     nv2a_profile_inc_counter(NV2A_PROF_QUEUE_SUBMIT_5);
+    if (disp_timing)
+        t1 = nv2a_recomp_vk_now_us();
+
+    if (disp->readback) {
+        /* the submission above waited for the queue to go idle */
+        if (disp->rb_noncoherent) {
+            VkMappedMemoryRange range = {
+                .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+                .memory = disp->rb_memory,
+                .size = VK_WHOLE_SIZE,
+            };
+            vkInvalidateMappedMemoryRanges(r->device, 1, &range);
+        }
+        glBindTexture(GL_TEXTURE_2D, disp->gl_texture_id);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, disp->width, disp->height,
+                        GL_RGBA, GL_UNSIGNED_BYTE, disp->rb_mapped);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glFinish();   /* visible to the window's (shared) context */
+    }
+    if (disp_timing) {
+        int64_t t2 = nv2a_recomp_vk_now_us();
+        t_submit_us += t1 - t0;
+        t_upload_us += t2 - t1;
+        if (++t_frames == 60) {
+            fprintf(stderr, "[VK-DISPLAY-TIME] %dx%d readback=%d: submit+wait "
+                    "%.2f ms, upload %.2f ms per frame\n", disp->width,
+                    disp->height, (int)disp->readback, t_submit_us / 60000.0,
+                    t_upload_us / 60000.0);
+            t_submit_us = t_upload_us = 0;
+            t_frames = 0;
+        }
+    }
 
     disp->draw_time = surface->draw_time;
 }

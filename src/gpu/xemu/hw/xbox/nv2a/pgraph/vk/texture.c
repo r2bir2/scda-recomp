@@ -1226,6 +1226,160 @@ static VkImage bloom_scratch_image(PGRAPHState *pg, int step, unsigned int w,
 
 static bool native_small_target(PGRAPHState *pg, const SurfaceBinding *s);
 
+/* Scratch images for the small-target supersample, one per size and format
+ * (the chain's sizes stay fixed per render scale, so this never grows past
+ * a handful of entries). */
+static VkImage small_ss_scratch(PGRAPHState *pg, unsigned int w,
+                                unsigned int h, VkFormat fmt)
+{
+    static struct { VkImage img; VmaAllocation alloc; unsigned int w, h;
+                    VkFormat fmt; } s[32];
+    PGRAPHVkState *r = pg->vk_renderer_state;
+    int i;
+    for (i = 0; i < 32 && s[i].img; i++) {
+        if (s[i].w == w && s[i].h == h && s[i].fmt == fmt)
+            return s[i].img;
+    }
+    if (i == 32)
+        return VK_NULL_HANDLE;
+    VkImageCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = VK_IMAGE_TYPE_2D,
+        .extent = { w, h, 1 },
+        .mipLevels = 1,
+        .arrayLayers = 1,
+        .format = fmt,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+    };
+    VmaAllocationCreateInfo alloc = {
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+    };
+    VK_CHECK(vmaCreateImage(r->allocator, &info, &alloc, &s[i].img,
+                            &s[i].alloc, NULL));
+    s[i].w = w;
+    s[i].h = h;
+    s[i].fmt = fmt;
+    return s[i].img;
+}
+
+/* Native-size copy of a small upscaled render target, supersampled (docs
+ * Update 666). SCDA's glow masks (e.g. the red rim of the ice boulders in
+ * Iceland) are drawn into 256x256 targets and blurred down to 32x32; taking
+ * one texel per guest pixel (Update 660) keeps the console's hard 256-grid
+ * edges, which step visibly while the camera moves. Here the upscaled
+ * target is averaged down in exact 2:1 steps plus one linear step, so
+ * edges keep their sub-texel position. Row and column 0 still take the
+ * covered texel (i+0.5)*s: their left/top part stays unwritten upscaled
+ * (Update 660), and an average would pull that stale texel back in. All
+ * writes to the texture are disjoint regions. Returns false when it could
+ * not run (caller falls back to the per-pixel copy). */
+static bool small_target_supersample(PGRAPHState *pg, VkCommandBuffer cmd,
+                                     SurfaceBinding *surface,
+                                     TextureBinding *texture,
+                                     unsigned int sw, unsigned int sh)
+{
+    unsigned int w = surface->width, h = surface->height;
+    unsigned int s = sw / w;
+    VkFormat fmt = surface->host_fmt.vk_format;
+    if (w < 2 || h < 2 || s < 2 || sw != w * s || sh != h * s)
+        return false;
+
+    VkImage cur = surface->image;
+    unsigned int cw = sw, ch = sh;
+    while (cw / 2 >= w && ch / 2 >= h) {
+        unsigned int nw = cw / 2, nh = ch / 2;
+        VkImage dst = small_ss_scratch(pg, nw, nh, fmt);
+        if (!dst)
+            return false;
+        pgraph_vk_transition_image_layout(pg, cmd, dst, fmt,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageBlit half = {
+            .srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .srcSubresource.layerCount = 1,
+            .srcOffsets[1] = { (int32_t)cw, (int32_t)ch, 1 },
+            .dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .dstSubresource.layerCount = 1,
+            .dstOffsets[1] = { (int32_t)nw, (int32_t)nh, 1 },
+        };
+        vkCmdBlitImage(cmd, cur, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &half,
+                       VK_FILTER_LINEAR);
+        pgraph_vk_transition_image_layout(pg, cmd, dst, fmt,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        cur = dst;
+        cw = nw;
+        ch = nh;
+    }
+    if (cw != w || ch != h) {
+        VkImage dst = small_ss_scratch(pg, w, h, fmt);
+        if (!dst)
+            return false;
+        pgraph_vk_transition_image_layout(pg, cmd, dst, fmt,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageBlit last = {
+            .srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .srcSubresource.layerCount = 1,
+            .srcOffsets[1] = { (int32_t)cw, (int32_t)ch, 1 },
+            .dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .dstSubresource.layerCount = 1,
+            .dstOffsets[1] = { (int32_t)w, (int32_t)h, 1 },
+        };
+        vkCmdBlitImage(cmd, cur, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &last,
+                       VK_FILTER_LINEAR);
+        pgraph_vk_transition_image_layout(pg, cmd, dst, fmt,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        cur = dst;
+    }
+
+    VkImageBlit parts[3] = {
+        { /* interior: the average, 1:1 */
+            .srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .srcSubresource.layerCount = 1,
+            .srcOffsets = { { 1, 1, 0 }, { (int32_t)w, (int32_t)h, 1 } },
+            .dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .dstSubresource.layerCount = 1,
+            .dstOffsets = { { 1, 1, 0 }, { (int32_t)w, (int32_t)h, 1 } },
+        },
+        { /* column 0 (with the corner): covered texel per guest pixel */
+            .srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .srcSubresource.layerCount = 1,
+            .srcOffsets = { { 0, 0, 0 }, { (int32_t)s, (int32_t)sh, 1 } },
+            .dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .dstSubresource.layerCount = 1,
+            .dstOffsets = { { 0, 0, 0 }, { 1, (int32_t)h, 1 } },
+        },
+        { /* row 0 without the corner */
+            .srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .srcSubresource.layerCount = 1,
+            .srcOffsets = { { (int32_t)s, 0, 0 }, { (int32_t)sw, (int32_t)s, 1 } },
+            .dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .dstSubresource.layerCount = 1,
+            .dstOffsets = { { 1, 0, 0 }, { (int32_t)w, 1, 1 } },
+        },
+    };
+    vkCmdBlitImage(cmd, cur, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   texture->image, texture->current_layout, 1, &parts[0],
+                   VK_FILTER_NEAREST);
+    vkCmdBlitImage(cmd, surface->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   texture->image, texture->current_layout, 2, &parts[1],
+                   VK_FILTER_NEAREST);
+    static int logged;
+    if (!logged) {
+        logged = 1;
+        fprintf(stderr, "[VK] small render targets: supersampled native copy "
+                "(%ux%u from %ux%u)\n", w, h, sw, sh);
+    }
+    return true;
+}
+
 static void copy_surface_to_texture(PGRAPHState *pg, SurfaceBinding *surface,
                                     TextureBinding *texture)
 {
@@ -1326,7 +1480,19 @@ static void copy_surface_to_texture(PGRAPHState *pg, SurfaceBinding *surface,
             const char *e = getenv("RECOMP_VK_NATIVE_SMALL_NEAREST");
             nearest = !(e && e[0] == '0');
         }
-        VkFilter filter = nearest && native_small_target(pg, surface) ?
+        /* RECOMP_VK_NATIVE_SMALL_SS=0 (docs Update 666): per-pixel copy
+         * instead of the supersample. */
+        static int supersample = -1;
+        if (supersample < 0) {
+            const char *e = getenv("RECOMP_VK_NATIVE_SMALL_SS");
+            supersample = !(e && e[0] == '0');
+        }
+        bool small = native_small_target(pg, surface);
+        if (small && nearest && supersample &&
+            small_target_supersample(pg, cmd, surface, texture, sw, sh)) {
+            goto copied;
+        }
+        VkFilter filter = nearest && small ?
                               VK_FILTER_NEAREST : VK_FILTER_LINEAR;
         VkImageBlit blit = {
             .srcSubresource.aspectMask = surface->host_fmt.aspect,
@@ -1356,6 +1522,7 @@ static void copy_surface_to_texture(PGRAPHState *pg, SurfaceBinding *surface,
                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, texture->image,
                        texture->current_layout, 1, &region);
     }
+copied:
 
     pgraph_vk_transition_image_layout(
         pg, cmd, surface->image, surface->host_fmt.vk_format,
@@ -2013,15 +2180,35 @@ static void create_texture(PGRAPHState *pg, int texture_idx)
 
     /* xboxrecomp (docs Update 630): the NV2A mipmap LOD bias
      * (TEXFILTER bits 0-12, signed fixed point with 8 fractional bits; SCDA
-     * uses 0x1F81 = -0.496) is not applied upstream. RECOMP_TEX_LOD_BIAS=1
-     * applies it. RECOMP_TEX_MIP_LINEAR=1 (diagnostic) blends mip levels
+     * uses 0x1F81 = -0.496) is not applied upstream; applied by default
+     * since Update 669 (RECOMP_TEX_LOD_BIAS=0: off; it was opt-in before).
+     * RECOMP_TEX_MIP_LINEAR=1 (diagnostic) blends mip levels
      * even where the title asks for the nearest one. */
+    /* RECOMP_TEX_FILTER (option TextureFiltering, docs Update 669): 0 = as on
+     * the console (nearest mip level, with the console's LOD bias -- walls
+     * switched to the blurrier level visibly earlier without it), 1 = mip
+     * levels blended (no hard sharp/blurry line), 2 (default) = 1 plus 16x
+     * anisotropic filtering (surfaces seen at a shallow angle stay sharp).
+     * The diagnostic switches below still override. */
+    static int tex_filter = -1;
+    if (tex_filter < 0) {
+        const char *e = getenv("RECOMP_TEX_FILTER");
+        tex_filter = e && e[0] >= '0' && e[0] <= '2' ? e[0] - '0' : 2;
+        fprintf(stderr, "[VK] texture filtering %d%s\n", tex_filter,
+                tex_filter == 2 && !r->sampler_anisotropy_enabled ?
+                    " (no anisotropy on this GPU)" : "");
+    }
+    bool mipped = mipmap_en && !f_basic.linear && image_create_info.mipLevels > 1;
+    bool aniso = tex_filter == 2 && mipped && r->sampler_anisotropy_enabled &&
+                 vk_min_filter == VK_FILTER_LINEAR;
+    if (tex_filter >= 1 && mipped)
+        mipmap_nearest = false;
     float lod_bias = 0.0f;
     {
         static int bias_on = -1, mip_linear = -1;
         if (bias_on < 0) {
             const char *e = getenv("RECOMP_TEX_LOD_BIAS");
-            bias_on = e && e[0] == '1';
+            bias_on = e ? e[0] == '1' : 1;
             e = getenv("RECOMP_TEX_MIP_LINEAR");
             mip_linear = e && e[0] == '1';
         }
@@ -2045,9 +2232,9 @@ static void create_texture(PGRAPHState *pg, int texture_idx)
             GET_MASK(address, NV_PGRAPH_TEXADDRESS0_ADDRV)),
         .addressModeW = lookup_texture_address_mode(
             GET_MASK(address, NV_PGRAPH_TEXADDRESS0_ADDRP)),
-        .anisotropyEnable = VK_FALSE,
-        // .anisotropyEnable = VK_TRUE,
-        // .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+        .anisotropyEnable = aniso ? VK_TRUE : VK_FALSE,
+        .maxAnisotropy = aniso ?
+            MIN(16.0f, r->device_props.limits.maxSamplerAnisotropy) : 1.0f,
         .borderColor = vk_border_color,
         .compareEnable = VK_FALSE,
         .compareOp = VK_COMPARE_OP_ALWAYS,

@@ -21,7 +21,7 @@
 #define SCDA_GAME_DIR "game_files\\scda"
 #define SCDA_ENTRY_POINT 0x00054775u
 
-extern uint32_t g_esp;
+/* g_esp: thread-local, declared by recomp_types.h (via recomp_funcs.h) */
 extern void scda_dump_actorlist_ring(void);
 extern void scda_dump_icall_ring(void);
 extern void scda_dump_fade_ring(void);
@@ -953,6 +953,90 @@ static void scda_init_diagnostics(void)
     xbox_SetRelaunchHostHook(scda_before_relaunch);
     scda_start_sampler();
 }
+#else /* !_WIN32 */
+
+/* Linux start-up (ARM port, docs Update 677): the same release layout,
+ * options file and log as on Windows, on top of the Win32 shim, where paths
+ * are Windows-style ("Z:\home\..."). The crash filter logs the signal and the
+ * host backtrace; there is no minidump and no sampling profiler. */
+#include <execinfo.h>
+#include <unistd.h>
+
+static char g_scda_exe_dir[MAX_PATH];
+static char g_scda_data_dir[MAX_PATH];
+static int s_release_layout;
+static char s_release_game_dir[MAX_PATH];
+static FILE *s_log_file;
+
+static void scda_path_in_exe_dir(char *out, size_t out_size, const char *name)
+{
+    snprintf(out, out_size, "%s\\%s",
+             g_scda_data_dir[0] ? g_scda_data_dir : g_scda_exe_dir, name);
+}
+
+static LONG WINAPI scda_posix_crash(EXCEPTION_POINTERS *exception)
+{
+    static volatile LONG reported;
+    void *frames[48];
+    int n;
+
+    if (InterlockedCompareExchange(&reported, 1, 0) != 0)
+        return EXCEPTION_CONTINUE_SEARCH;
+    fprintf(stderr, "[SCDA-CRASH] exception=0x%08lX address=%p tid=%lu "
+            "host_pc=%p guest_esp=0x%08X",
+            (unsigned long)exception->ExceptionRecord->ExceptionCode,
+            exception->ExceptionRecord->ExceptionAddress,
+            (unsigned long)GetCurrentThreadId(),
+            (void *)(uintptr_t)XBOX_CONTEXT_PC(exception->ContextRecord),
+            (unsigned)g_esp);
+    if (exception->ExceptionRecord->NumberParameters >= 2)
+        fprintf(stderr, " access=%llu fault=%p",
+                (unsigned long long)exception->ExceptionRecord->ExceptionInformation[0],
+                (void *)(uintptr_t)exception->ExceptionRecord->ExceptionInformation[1]);
+    fputc('\n', stderr);
+    n = backtrace(frames, 48);
+    backtrace_symbols_fd(frames, n, fileno(stderr));
+    fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static void scda_posix_init(void)
+{
+    char *sep;
+    DWORD len = GetModuleFileNameA(NULL, g_scda_exe_dir, MAX_PATH);
+    if (!len || len >= MAX_PATH)
+        snprintf(g_scda_exe_dir, sizeof(g_scda_exe_dir), ".");
+    else if ((sep = strrchr(g_scda_exe_dir, '\\')) != NULL)
+        *sep = '\0';
+
+    {
+        char user_dir[MAX_PATH];
+        if (scda_layout_resolve(g_scda_exe_dir, s_release_game_dir,
+                                sizeof(s_release_game_dir), user_dir,
+                                sizeof(user_dir))) {
+            s_release_layout = 1;
+            snprintf(g_scda_data_dir, sizeof(g_scda_data_dir), "%s", user_dir);
+            SetCurrentDirectoryA(user_dir);
+            setenv("RECOMP_DATA_DIR", user_dir, 1);
+        }
+    }
+    /* the log next to the data, as on Windows; RECOMP_LOG_STDERR=1 keeps
+     * the terminal */
+    if (!getenv("RECOMP_LOG_STDERR") || getenv("RECOMP_LOG_STDERR")[0] == '0') {
+        char log_path[MAX_PATH];
+        scda_path_in_exe_dir(log_path, sizeof(log_path), "scda_runtime.log");
+        s_log_file = fopen(log_path, "w");
+        if (s_log_file) {
+            dup2(fileno(s_log_file), fileno(stdout));
+            dup2(fileno(s_log_file), fileno(stderr));
+            setvbuf(s_log_file, NULL, _IONBF, 0);
+        }
+    }
+    SetUnhandledExceptionFilter(scda_posix_crash);
+}
+
+/* the all-threads sampler is Windows-only (thread contexts + unwinding) */
+void scda_sample_all_now(void) {}
 #endif
 
 static int load_file(const char *path, void **data_out, size_t *size_out)
@@ -980,6 +1064,13 @@ static int load_file(const char *path, void **data_out, size_t *size_out)
     return 1;
 }
 
+/* Hybrid-graphics laptops (docs Update 674): ask the NVIDIA Optimus and AMD
+ * PowerXpress drivers for the discrete GPU. Without this the OpenGL window
+ * landed on the integrated GPU as soon as the EXE was moved and lost its
+ * per-path GPU preference, while Vulkan still picked the discrete card. */
+__declspec(dllexport) DWORD NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+
 int main(void)
 {
     void *xbe_data = NULL;
@@ -991,6 +1082,18 @@ int main(void)
 #ifdef _WIN32
     char adjacent_xbe[MAX_PATH];
     char adjacent_saves[MAX_PATH];
+
+    /* Per-monitor DPI aware (docs Update 669): without it, Windows display
+     * scaling above 100% gave the game a smaller virtual screen and
+     * stretched the finished picture itself -- blurry and blocky, worst in
+     * fullscreen. Before any window exists. */
+    {
+        typedef BOOL (WINAPI *dpi_ctx_fn)(HANDLE);
+        dpi_ctx_fn set_ctx = (dpi_ctx_fn)(void *)GetProcAddress(
+            GetModuleHandleA("user32.dll"), "SetProcessDpiAwarenessContext");
+        if (!set_ctx || !set_ctx((HANDLE)(intptr_t)-4))   /* PER_MONITOR_AWARE_V2 */
+            SetProcessDPIAware();
+    }
 
     /* scda_options.txt next to the EXE (docs Update 614): the player's
      * settings become RECOMP_* variables before anything reads them. */
@@ -1064,17 +1167,29 @@ int main(void)
             save_dir = isolated_save_dir;
         }
     }
+#else
+    scda_options_load();
+    xbox_PinGuestThread();
+    scda_posix_init();
+    if (s_release_layout) {
+        static char release_xbe[MAX_PATH], release_saves[MAX_PATH];
+        snprintf(release_xbe, sizeof(release_xbe), "%s\\default.xbe",
+                 s_release_game_dir);
+        snprintf(release_saves, sizeof(release_saves), "%s\\hdd",
+                 g_scda_data_dir);
+        CreateDirectoryA(release_saves, NULL);
+        xbe_path = release_xbe;
+        game_dir = s_release_game_dir;
+        save_dir = release_saves;
+        xbox_path_set_partition1_dir(g_scda_data_dir);
+    }
 #endif
 
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     puts("SCDA static recompilation bootstrap");
     printf("Executable directory: %s\n",
-#ifdef _WIN32
            g_scda_exe_dir
-#else
-           "."
-#endif
     );
     printf("XBE path: %s\nGame directory: %s\nSave directory: %s\n",
            xbe_path, game_dir, save_dir);

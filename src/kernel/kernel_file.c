@@ -42,7 +42,7 @@ static const char* get_xbox_path(PXBOX_OBJECT_ATTRIBUTES ObjectAttributes)
 }
 
 /* ======================================================================== */
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(XBOX_POSIX_WIN32_SHIM)
 /* ====================  Win32 backend  =================================== */
 /* ======================================================================== */
 
@@ -186,7 +186,11 @@ static void scda_umd_track_handle(HANDLE h, const WCHAR *win_path)
         return;
     if (s_scda_umd_handle_count < SCDA_UMD_TRACK_MAX)
         s_scda_umd_handles[s_scda_umd_handle_count++] = h;
+#if defined(XBOX_POSIX_WIN32_SHIM)
+    w32_fprintf(stderr, "[SCDA-UMD-OPEN] handle=%p path=%S\n", h, win_path);
+#else
     fprintf(stderr, "[SCDA-UMD-OPEN] handle=%p path=%S\n", h, win_path);
+#endif
     fflush(stderr);
 }
 

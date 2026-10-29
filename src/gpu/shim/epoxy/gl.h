@@ -9,7 +9,11 @@
 #include <stdbool.h>
 
 #ifndef APIENTRY
+#if defined(_WIN32)
 #define APIENTRY __stdcall
+#else
+#define APIENTRY
+#endif
 #endif
 #ifndef APIENTRYP
 #define APIENTRYP APIENTRY *
@@ -47,4 +51,8 @@
 bool epoxy_has_gl_extension(const char *ext);
 int epoxy_gl_version(void);
 bool epoxy_is_desktop_gl(void);
-bool nv2a_gl_loader_init(void);
+/* strict: every non-EXT entry point required (OpenGL renderer); false for
+ * a pre-4.0 context that only presents (docs Update 675) */
+bool nv2a_gl_loader_init(bool strict);
+/* true when only a pre-4.0 context could be created (gloffscreen_wgl.c) */
+extern bool nv2a_gl_legacy_context;

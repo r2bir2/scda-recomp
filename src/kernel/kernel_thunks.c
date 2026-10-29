@@ -73,7 +73,11 @@ void xbox_log(int level, const char* subsystem, const char* fmt, ...)
     fprintf(out, "[%s] %s [%-6s] ", timestamp, xbox_log_level_str(level), subsystem);
 
     va_start(args, fmt);
+#if defined(XBOX_POSIX_WIN32_SHIM)
+    w32_vfprintf(out, fmt, args);   /* MSVC conversions: "%S" is a WCHAR string */
+#else
     vfprintf(out, fmt, args);
+#endif
     va_end(args);
 
     fprintf(out, "\n");

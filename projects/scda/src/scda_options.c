@@ -32,8 +32,12 @@ static const char s_template[] =
 "#           2 = 5.1 as multichannel PCM through Windows (5.1 speakers on\r\n"
 "#               HDMI/analog; a stereo device gets a stereo downmix)\r\n"
 "Surround = 0\r\n"
-"# AudioDevice: empty = Windows default output, otherwise part of the\r\n"
-"# device name, e.g. AudioDevice = S/PDIF\r\n"
+"# AudioDevice: output for all sound modes. Empty = Windows default output,\r\n"
+"#   hdmi = first HDMI output, spdif (or toslink / optical) = first S/PDIF\r\n"
+"#   output, anything else = part of the device name as Windows shows it.\r\n"
+"#   The available outputs are listed in user\\scda_runtime.log ([AUDIO]).\r\n"
+"#   S/PDIF and Toslink carry 5.1 only as Dolby Digital (Surround = 1);\r\n"
+"#   HDMI carries 5.1 with Surround = 1 or 2.\r\n"
 "AudioDevice =\r\n"
 "# MuteInBackground: 1 = silent while the game window is not in front\r\n"
 "# (with Surround = 1 the receiver briefly switches to PCM)\r\n"
@@ -54,11 +58,21 @@ static const char s_template[] =
 "#   0 = off (small lights flicker in the glow), 2 = default, 3 = steadier, wider glow\r\n"
 "BloomSmoothing = 2\r\n"
 "# AntiAliasing: 1 = smooth jagged edges of the finished picture, 0 = off\r\n"
+"# (only at RenderScale 2-4; at 1 it would blur the HUD and text)\r\n"
 "AntiAliasing = 1\r\n"
+"# TextureFiltering: 0 = as on the Xbox (textures switch abruptly to a\r\n"
+"#   blurrier detail level), 1 = smooth switch, 2 = smooth and sharp on\r\n"
+"#   surfaces seen at a shallow angle\r\n"
+"TextureFiltering = 2\r\n"
 "# VSync: 1 = synchronise to the monitor (no tearing)\r\n"
 "VSync = 1\r\n"
 "# Renderer: vulkan or opengl\r\n"
 "Renderer = vulkan\r\n"
+"# GraphicsCard: empty = automatic (the dedicated graphics card if there is\r\n"
+"#   one, e.g. NVIDIA instead of Intel on laptops), otherwise part of the\r\n"
+"#   card's name, e.g. GTX or Intel. Vulkan only; the available cards are\r\n"
+"#   listed in user\\scda_runtime.log (\"Available physical devices\").\r\n"
+"GraphicsCard =\r\n"
 "\r\n"
 "[Window]\r\n"
 "# Fullscreen: 1 = borderless fullscreen, 0 = window\r\n"
@@ -74,6 +88,10 @@ static const char s_template[] =
 "Language = EN\r\n"
 "# SkipIntro: 1 = skip the logo and intro videos at start-up\r\n"
 "SkipIntro = 0\r\n"
+"# NightVisionInterference: the interference of the night vision near lights\r\n"
+"#   in both JBA headquarters levels (flickering static and crackling sound).\r\n"
+"#   0 = off, as in the other missions, 1 = as on the Xbox\r\n"
+"NightVisionInterference = 0\r\n"
 "# Keyboard: 1 = keyboard in addition to a controller\r\n"
 "#   Player 1: Enter = START, Backspace = BACK, Home/Delete/End/PageDown =\r\n"
 "#   D-pad, A/B/X/Y = A/B/X/Y, E/S/D/F = left stick, I/J/K/L = right stick,\r\n"
@@ -102,13 +120,16 @@ static const OptionMap s_map[] = {
     { "FPS60Coop",        NULL,                 "RECOMP_60FPS_COOP" },
     { "BloomSmoothing",   NULL,                 "RECOMP_VK_BLOOM_PREFILTER" },
     { "AntiAliasing",     NULL,                 "RECOMP_FXAA" },
+    { "TextureFiltering", NULL,                 "RECOMP_TEX_FILTER" },
     { "VSync",            NULL,                 "RECOMP_VSYNC" },
     { "Renderer",         NULL,                 "RECOMP_RENDERER" },
+    { "GraphicsCard",     NULL,                 "RECOMP_VK_DEVICE" },
     { "Fullscreen",       "Vollbild",           "RECOMP_FULLSCREEN" },
     { "Monitor",          NULL,                 "RECOMP_MONITOR" },
     { "RememberWindow",   "FensterMerken",      "RECOMP_REMEMBER_WINDOW" },
     { "Language",         "Sprache",            "RECOMP_XC_LANGUAGE" },
     { "SkipIntro",        "IntroUeberspringen", "RECOMP_SKIP_INTRO" },
+    { "NightVisionInterference", NULL,          "RECOMP_NV_INTERFERENCE" },
     { "Keyboard",         "Tastatur",           "RECOMP_INPUT_KEYBOARD" },
     { "Keyboard2",        NULL,                 "RECOMP_INPUT_KEYBOARD2" },
 };

@@ -5,6 +5,29 @@ Tests und Dumps, die in diesem Arbeitsstand überprüft wurden.
 
 ## CURRENT HANDOFF
 
+**UPDATE 687, 2026-10-29: Video-Builds** `V:\SCDA_Recomp_v0.4` (echter Build 03.09., Absturz nach ~0,7 s) und `V:\SCDA_Recomp_v0.5` (v1.63 + Starter, der die Flacker-Korrekturen 634/653/656/660/666 abschaltet). Nur fuers Video, NICHT hochladen. Details Worklog Update 687.
+
+
+**UPDATE 686, 2026-10-28 -- Release v1.63 vorbereitet, nicht hochgeladen:** GitHub hat nur v1.0 (13.10.). v1.62-Quellcode nicht exakt rekonstruierbar -> v1.63 = aktueller Stand (EXE 26.10. 12:16 `76045da6...`). `release/SCDA_Recomp_v1.63.zip`, CHANGELOG (`projects/scda/release/CHANGELOG.md`), Export in `C:\VScode\SCDA_Recomp_source` gestaged (nicht committet/gepusht). Bild-A/B Clear-in-Pass unter Windows ok. Offen: Nutzer-Spieltest, Upload-Freigabe, Entscheidung alte ZIPs (GPL/Quellcode). Details Worklog 686.
+
+**2026-10-18 -- Release-ZIP v1.1:** `release/SCDA_Recomp_v1.1.zip` (Updates 662-665, Build 14:59 `6ba64e67...`).
+HQ-Stoerung steckt in x05_hq2_r und x11_hq5_r; Schalter wirkt global, also in beiden. GitHub noch nicht aktualisiert.
+
+**UPDATE 665, 2026-10-16 -- HQ-Nachtsicht-Rollbalken behoben:** Renderer (0x2F184F) zeichnet die Stoerung bei Wert
+!= 1.0; der 664-Skip liess +0x3BC auf 0. Wrapper sub_001F8F9C setzt jetzt den Original-Ruhewert 1.0. Test mit
+Nutzer-Schnellspeicherstand: keine Balken/Koernung. Build 13:25 `34527427...`. Worklog 665.
+
+**UPDATE 664, 2026-10-16 -- HQ-Nachtsicht-Stoerung komplett abschaltbar:** `_gen`-Wrapper sub_001F8D00/sub_001F8F9C
+werden bei Option `NightVisionInterference = 0` (`RECOMP_NV_INTERFERENCE=0`) uebersprungen -> kein Rauschbild, kein
+Geraeusch, wie in anderen Missionen. Hash-Filter aus 663 entfernt. A/B: on 10 verrauschte Bilder, off/Option 0. Build
+10:44 `294c4b65...`. Worklog 664.
+
+**UPDATE 663, 2026-10-15 -- HQ-Nachtsicht-Stoergeraeusch abschaltbar:** Ausloeser sub_001F8F9C (Nachtsicht nahe
+gelisteter Lichtquellen in x05_hq2_r) spielt LevelInfo+0x5AC = `Play_multi_goggle_interference` (Hash 0x6DAF3C4A) ueber
+Audio 0x2DED08. Wrapper in recomp_lookup_manual ueberspringt genau diesen Hash; Option `NightVisionInterference = 0`
+(Vorlage aus). Test nv_sound11/12: Geraeusch angefordert und uebersprungen. Bildanteil unveraendert, Hoertest Nutzer offen.
+Build 22:38 `1eae7ac7...`. Worklog 663.
+
 **UPDATE 660, 2026-10-13 -- Bloom-Randflackern 2x/4x behoben:** Ursache: Bloom-Quads lassen hochskaliert die halbe
 erste Pixelspalte/-zeile leer; die LINEAR-Verkleinerung kleiner Ziele mittelte bei geraden Faktoren diesen Alt-Texel ein.
 Jetzt NEAREST (`RECOMP_VK_NATIVE_SMALL_NEAREST=0` = alt). 2x/3x/4x 0/59 Bildpaare mit Band. Alte Nutzerprofile fehlen seit
@@ -32756,3 +32779,66 @@ Eintrag hinzugefuegte Diagnose (Zaehler fuer fehlende Bridges,
 `ObReferenceObjectByHandle`-Handle-/Aufloesungs-Logger) war temporaer,
 wurde gelesen und wieder entfernt; die einzige dauerhafte Aenderung ist der
 eine echte, praezedenzierte, als sicher verifizierte Dispatch-Wiring-Fix.
+
+- **2026-10-25, Update 675 (Mali/ARM):** SCDA laeuft auf dem Khadas Edge 2 (Mali-G610) unter Box64 + Wine 10 bis ins Hauptmenue (~13-14 FPS). Renderer ohne Geometry-Shader (Quads per CPU-Indexliste), GL-Kontext-Fallback < 4.0, optionale Vulkan-Interop, kleinere Puffer, zweite Speicherbasis 0x10_0000_0000, RECOMP_IRQ_ASYNC=0. PC-Verhalten unveraendert (Regressionslauf). Details: docs/SCDA_WORKLOG.md Update 675.
+- **2026-10-25, Updates 676/677 (ARM nativ, laufend):** Natives ARM64-Build ohne Box64/Wine (Win32-Schicht "Wine-light" in src/platform, EGL/SDL2, SDL-Audio) erreicht auf dem Khadas den Titelbildschirm; Titelphase ~27-31 FPS (Box64 13-14), Menue ~7,5 FPS offen. Windows-Build seit diesen Aenderungen NICHT neu gebaut/getestet. Details: docs/SCDA_WORKLOG.md Update 676/677.
+- **2026-10-25, ARM Update 678 (Windows-Regression):** Kanonischer Windows-RelWithDebInfo-Build
+  `build/scda_upgrade` erfolgreich. EXE 13:41:35, SHA-256
+  `6A848F56A8F2B5D9590316B46D6B6E8BD65EAA64CC54043B4088C725092D3536`.
+  Isolierter 30-s-Frischboot-Smoke mit `RECOMP_SMOKE_MUTE=1` lief ohne Absturz,
+  mit GPU-/Audio-/Fensterfortschritt; eigene Test-PID danach beendet. Dies belegt Build
+  und Kurzstart, nicht Menü oder Spielbarkeit.
+- **2026-10-25, ARM Update 679 (Relaunch-Testbereinigung):** Der native Board-Helfer
+  `agent_handoff/test.sh` speichert nun die echte Session-PID aus der via `setsid`
+  gestarteten Shell; die frühere `$!`-PID konnte lediglich den kurzlebigen Wrapper
+  bezeichnen. Beim Ende werden nur Mitglieder dieser eigens erstellten Prozessgruppe
+  einzeln per PID beendet. Stummer 105-s-Relaunch-Test bis Island erfolgreich;
+  abschließendes Board-`pgrep` leer. Dies ist ein Testharness-Fix, keine Änderung
+  an generiertem Code oder der Recompiler-Logik.
+- **2026-10-25, ARM Update 680 (Port-Verwechslung und Performance-A/B):** Nutzerstart
+  mit 9–10 FPS war nachweislich die Wine/Box64-EXE (`pgrep`: `wine64 ...scda_recomp.exe`).
+  Native ARM64-Referenz: Titel ~30 FPS, Island-Szene meist 18–20 FPS im stummen
+  105-s-Test. Linux-Build ohne ABI-/Trace-/ICALL-Diagnose-Defines wurde zwar
+  erfolgreich gebaut, blieb aber nach dem Level-Relaunch in einer
+  `XGetDeviceChanges`-Schleife ohne weitere Bilder (0 FPS) hängen. Änderung
+  verworfen, stabile EXE im nativen Spielordner wiederhergestellt, Board frei.
+- **2026-10-25, ARM Update 681 (später korrigiert; nativer Starter):** Auch bei
+  alleiniger Deaktivierung von `RECOMP_ABI_CHECK` (Trace/ICALL-Probe aktiv)
+  reproduziert der 105-s-Test den Stillstand nach Island-Relaunch (vier
+  5-s-Fenster mit 0 Bildern). Diese Zuschreibung wurde durch Update 682 widerlegt.
+  Option zurückgenommen; stabile EXE wiederhergestellt.
+  Separater, eindeutig als ARM64 nativ benannter GNOME-Desktop-Starter auf dem
+  Khadas angelegt. `-O2`-A/B-Build für generierten Linux-Code läuft.
+- **2026-10-25, ARM Update 682 (A/B-Konfundierung erkannt):** `-O2`-Build
+  erfolgreich, doch nach Island-Relaunch im gemeinsamen Testordner 0 Bilder.
+  Derselbe Fehler trat unmittelbar darauf auch mit der ursprünglichen,
+  unveränderten EXE auf. Die vorherige Diagnose, ABI-Deaktivierung oder
+  `-O2` verursachten den Stillstand, war falsch. Die Tests teilen sich
+  persistente Speicherdaten; neue A/B-Läufe müssen isolierte, identische
+  Anfangszustände verwenden. Native Spielordner-EXE wieder auf stabilem Hash.
+- **2026-10-25, ARM Update 683 (isoliertes A/B und sichere Installation):**
+  Zwei neue Board-Testordner mit identischen Startdaten: `-O1` im Menü meist
+  126–136 Refreshes/5 s, `-O2` 148–153/5 s (~15 % mehr). Der gespeicherte
+  Level-Launch bleibt bei beiden Builds nach frühen schwarzen Bildern stehen;
+  Gameplay unter `-O2` daher nicht validiert. Installierte native EXE und
+  Board-Buildbaum erfolgreich auf `-O1` zurückgebaut, beide SHA-256
+  `ebe71e638190c76bda3e785dbd54e4f84f1ed1ff81853a2887a0568c243b10ce`.
+  `-O2` nur im getrennten Testordner. GNOME-Desktop-Starter „ARM64 nativ“
+  validiert. Board ohne laufende SCDA-Instanz.
+- **2026-10-25, ARM Update 684 (unsichtbares natives Desktop-Fenster):** Beim
+  aktuellen Nutzerstart lief die native PID 93723, aber GNOME hatte
+  `SDL_VIDEODRIVER=wayland` vererbt. Das Log belegte `not an X11 window: GPU
+  presenting disabled` und ~60 CPU-Fensterupdates/s statt EGL/GL-Bildern.
+  `agent_handoff/start_scda_native.sh` setzt jetzt ausdrücklich
+  `SDL_VIDEODRIVER=x11`; Skript auf das Board kopiert, Syntax und Xwayland-
+  Zugriff geprüft. Laufende Nutzerinstanz nicht beendet. Sichtbare Ausgabe
+  nach eigenem Neustart des Nutzers noch nicht verifiziert; kein Build nötig.
+- **2026-10-25, ARM Update 685 (Mehrkern-Engpass im Nutzerlauf):** Native
+  Instanz PID 95122 bei RenderScale 2 lieferte GL-Bilder, teils nur ~10–14
+  FPS. `pidstat` zeigte zwei Gastthreads fest auf CPU 7 (je ~39–44 % CPU,
+  ~34–48 % CPU-Wartezeit), während ein arbeitsintensiver Geräte-/GPU-Thread
+  auf anderen Kernen lief (~44–66 % CPU). Also mehrere Kerne genutzt, aber
+  unnötige Konkurrenz der Gastthreads. Ein standardmäßig inaktiver POSIX-
+  Schalter `RECOMP_GUEST_CPU_MASK` in `xbox_PinGuestThread` vorbereitet,
+  um nur schnelle Kerne 6–7 statt auch A55-Kerne zuzulassen. Kein Board-
+  Build/Test oder Eingriff in die Nutzer-PID; Gameplay-A/B noch offen.

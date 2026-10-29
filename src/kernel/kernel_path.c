@@ -196,7 +196,7 @@ static int resolve_symlink(const char* xbox_path, char* out, size_t out_size)
 }
 
 /* ======================================================================== */
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(XBOX_POSIX_WIN32_SHIM)
 /* ======================================================================== */
 
 #include <shlobj.h>

@@ -118,6 +118,7 @@ static volatile int s_cancel;
 static char s_line1[160], s_line2[MAX_PATH];
 static int s_permille;
 
+#if defined(_WIN32)
 static LRESULT CALLBACK progress_proc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
     if (m == WM_CLOSE) {
@@ -201,6 +202,22 @@ static void progress_close(void)
     }
     progress_pump();
 }
+#else
+/* no native dialog on Linux (ARM port, docs Update 677): progress on the
+ * console, about once a second */
+static void progress_open(void) {}
+static void progress_close(void) {}
+static void progress_pump(void)
+{
+    static DWORD last;
+    DWORD now = GetTickCount();
+    if (now - last < 1000)
+        return;
+    last = now;
+    fprintf(stderr, "[SCDA] unpacking the game ISO: %s\n", s_line1);
+}
+#define InvalidateRect(w, r, e) ((void)0)
+#endif
 
 /* ---- XISO reader ------------------------------------------------------ */
 
@@ -576,6 +593,10 @@ static void check_runtime_files(const char *exe_dir)
     };
     char p[MAX_PATH], missing[512] = "", text[1024];
 
+#if !defined(_WIN32)
+    (void)dlls; (void)p; (void)text; (void)exe_dir;
+    return;   /* Linux links its libraries (ARM port, docs Update 677) */
+#endif
     for (size_t i = 0; i < sizeof(dlls) / sizeof(dlls[0]); i++) {
         _snprintf_s(p, sizeof(p), _TRUNCATE, "%s\\%s", exe_dir, dlls[i]);
         if (!is_file(p)) {

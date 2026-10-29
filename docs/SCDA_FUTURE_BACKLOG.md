@@ -64,3 +64,26 @@ dann Draw-Call des Zettels (Combiner/Textur-State) recomp vs. xemu diffen.
 - (2026-10-09) Grafikfehler "Zacken aus der Wand": an einer Wand (HQ-Karte, Naehe Rohr/
   Halterung oben) ragt ein dunkler Zacken/Stab aus der Wand. Nutzer-Screenshot liegt in
   `scratchpad/bloom_20261009/` (neuestes Bild vom 09.10. abends). Nach dem Bloom-Thema ansehen.
+
+## Nutzerbericht 19.10.2026 (nach 2-3 Stunden Spielen, Build v1.3 / Update 669)
+
+Allgemein: keine Probleme bemerkt (nicht gezielt geprueft). Erst spaeter angehen, Reihenfolge
+mit dem Nutzer abstimmen. Ersteinschaetzungen sind Hypothesen, nicht verifiziert.
+
+1. **Ton faellt nach mehrfachem Laden/Speichern weg (wichtig):** nur noch ein einzelnes
+   Umgebungsgeraeusch hoerbar, auch keine Menuetoene (START, Menue hoch/runter). Neustart der EXE
+   behebt es -> nicht im Spielstand gespeichert. Beim anderen Recomp (TGP482) berichten Spieler
+   Aehnliches. Hypothese: Stimmen/Puffer werden bei Levelwechsel/Laden nicht freigegeben
+   (APU-Voice-Liste oder DirectSound-Pool erschoepft) -> neue Sounds starten nicht. Ansatz:
+   Wiederholtes Laden automatisiert (launch_data + Schnellladen), `[APU-VOICE]`-Zaehler je Ladevorgang.
+2. **Lautstaerke-Balance:** an einer Stelle Effekte/Hintergrund viel zu laut, Stimme unverstaendlich;
+   Musik lief nicht. Auch frueher schon Hinweise auf zu lauten Ton (Stereo und 5.1). Nutzer sicher,
+   dass xemu/HW/Xbox One besser klingen. Ansatz: xemu-Vergleich derselben Stelle (Pegel je Stimme),
+   pruefen ob Lautstaerke-/Headroom-Register oder Ducking (Absenken bei Dialog) fehlen.
+3. **Surround-Verteilung:** hinten kommt immer etwas, aber Geraeusche "hinter mir" wandern beim
+   Drehen nicht erkennbar ueber die Lautsprecher; Funkstimmen fast nur Center (koennte Original sein).
+   Nutzer will mit Originalhardware gegenpruefen. Ansatz: 6-Kanal-Pegel bei bekannter Quelle messen.
+4. **Okhotsk (x08): leichtes Bildflackern beim ersten Sichtkontakt mit einem Generator mit kleinem
+   Haengelicht**, danach normal. Hypothese: erster Einsatz eines Shaders/Pipeline oder Textur-
+   Upload (einmaliger Effekt). Nutzer: "nicht heute".
+5. **TextureFiltering (Update 669) nochmals ansehen** (Nutzer will 0/1/2 vergleichen).

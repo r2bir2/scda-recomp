@@ -754,6 +754,12 @@ static int nv2a_fb_host_source(uint32_t *dst, uint32_t width, uint32_t height)
  * there is no display surface yet or GL presenting is unavailable. */
 extern HDC glo_window_dc(HWND hwnd);
 extern int glo_make_current_on(GloContext *context, HDC hdc);
+#if !defined(_WIN32)
+/* EGL on Linux (gloffscreen_egl.c, docs Update 677) */
+extern int glo_swap_window(HDC hdc);
+extern void glo_swap_interval(int interval);
+#define SwapBuffers(dc) glo_swap_window(dc)
+#endif
 
 void *nv2a_recomp_xchg_ptr(void *volatile *p, void *v)
 {
@@ -812,12 +818,16 @@ static int nv2a_fb_host_present(void *hwnd_v, uint32_t width, uint32_t height)
         return 0;
     }
     if (!fbo) {
+        const char *vs = getenv("RECOMP_VSYNC");
+#if defined(_WIN32)
         typedef BOOL (WINAPI *swap_interval_fn)(int);
         swap_interval_fn swap_interval =
             (swap_interval_fn)wglGetProcAddress("wglSwapIntervalEXT");
-        const char *vs = getenv("RECOMP_VSYNC");
         if (swap_interval)
             swap_interval(vs && vs[0] == '0' ? 0 : 1);
+#else
+        glo_swap_interval(vs && vs[0] == '0' ? 0 : 1);
+#endif
         glGenFramebuffers(1, &fbo);
         fprintf(stderr, "[GPU-DISPLAY] presenting with GL blit + SwapBuffers "
                 "(vsync %s)\n", vs && vs[0] == '0' ? "off" : "on");
@@ -904,11 +914,95 @@ static int nv2a_fb_host_present(void *hwnd_v, uint32_t width, uint32_t height)
                 }
             }
         }
+        /* Downscale (docs Update 668): a picture larger than the window
+         * (e.g. RenderScale 3 = 1440 lines on a 1080-line monitor) went
+         * through one LINEAR blit, which weights the source rows unevenly
+         * (every fourth row half dropped at 4:3) -- thin HUD lines and text
+         * came out uneven and shimmered. Instead: LINEAR to a power-of-two
+         * multiple (2x or 4x) of the window per axis, then exact 2:1 LINEAR
+         * halvings, i.e. an even average. RECOMP_PRESENT_DOWNSCALE=0: off. */
+        static int ds_on = -1;
+        static GLuint ds_tex[3], ds_fbo[3];
+        static GLint ds_w[3], ds_h[3];
+        if (ds_on < 0) {
+            const char *e = getenv("RECOMP_PRESENT_DOWNSCALE");
+            ds_on = !(e && e[0] == '0');
+        }
+        GLint src_w = sx1 - sx0, src_h = sy1 - sy0;
+        if (ds_on && filter == GL_LINEAR && dw > 0 && dh > 0 &&
+            (src_w > (GLint)dw || src_h > (GLint)dh)) {
+            GLint kx = 1, ky = 1, n = 0, cw, ch;
+            while (kx < 4 && src_w > (GLint)dw * kx)
+                kx *= 2;
+            while (ky < 4 && src_h > (GLint)dh * ky)
+                ky *= 2;
+            cw = (GLint)dw * kx;
+            ch = (GLint)dh * ky;
+            /* stage sizes: (dw*kx, dh*ky), halved per axis down to (dw, dh) */
+            for (;;) {
+                if (n == 3)
+                    break;
+                if (ds_w[n] != cw || ds_h[n] != ch) {
+                    if (!ds_tex[n]) {
+                        glGenTextures(1, &ds_tex[n]);
+                        glGenFramebuffers(1, &ds_fbo[n]);
+                    }
+                    glBindTexture(GL_TEXTURE_2D, ds_tex[n]);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, cw, ch, 0, GL_RGBA,
+                                 GL_UNSIGNED_BYTE, NULL);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ds_fbo[n]);
+                    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                           GL_TEXTURE_2D, ds_tex[n], 0);
+                    ds_w[n] = cw;
+                    ds_h[n] = ch;
+                }
+                n++;
+                if (cw == (GLint)dw && ch == (GLint)dh)
+                    break;
+                if (cw > (GLint)dw)
+                    cw /= 2;
+                if (ch > (GLint)dh)
+                    ch /= 2;
+            }
+            if (ds_w[n - 1] == (GLint)dw && ds_h[n - 1] == (GLint)dh) {
+                /* source -> stage 0 */
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ds_fbo[0]);
+                glBlitFramebuffer(sx0, sy0, sx1, sy1, 0, 0, ds_w[0], ds_h[0],
+                                  GL_COLOR_BUFFER_BIT, GL_LINEAR);
+                for (int i = 1; i < n; i++) {
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER, ds_fbo[i - 1]);
+                    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ds_fbo[i]);
+                    glBlitFramebuffer(0, 0, ds_w[i - 1], ds_h[i - 1], 0, 0,
+                                      ds_w[i], ds_h[i], GL_COLOR_BUFFER_BIT,
+                                      GL_LINEAR);
+                }
+                /* last stage is window-sized: copy it 1:1 */
+                glBindFramebuffer(GL_READ_FRAMEBUFFER, ds_fbo[n - 1]);
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                sx0 = sy0 = 0;
+                sx1 = (GLint)dw;
+                sy1 = (GLint)dh;
+                filter = GL_NEAREST;
+                static int ds_logged;
+                if (!ds_logged) {
+                    ds_logged = 1;
+                    fprintf(stderr, "[GPU-DISPLAY] downscale %dx%d -> %ux%u in %d "
+                            "steps (x%d/x%d)\n", src_w, src_h, dw, dh, (int)n,
+                            (int)kx, (int)ky);
+                }
+            } else {
+                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            }
+        }
         /* Both GL framebuffers are bottom-up, so no flip (the readback path
          * flips because GDI wants top-down rows). */
         glBlitFramebuffer(sx0, sy0, sx1, sy1, (GLint)dx, (GLint)dy,
                           (GLint)(dx + dw), (GLint)(dy + dh),
                           GL_COLOR_BUFFER_BIT, filter);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
     }
     glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                            GL_TEXTURE_2D, 0, 0);
@@ -1804,7 +1898,7 @@ static LONG CALLBACK nv2a_mmio_veh(PEXCEPTION_POINTERS ep)
             static uint32_t site_off[48];
             static unsigned long long calls;
             static DWORD t0;
-            uint64_t rip = (uint64_t)ep->ContextRecord->Rip;
+            uint64_t rip = (uint64_t)XBOX_CONTEXT_PC(ep->ContextRecord);
             uint32_t off = (uint32_t)(fault - s_ap_lo);
             if (!t0)
                 t0 = GetTickCount();
@@ -1834,7 +1928,7 @@ static LONG CALLBACK nv2a_mmio_veh(PEXCEPTION_POINTERS ep)
         }
     }
     uintptr_t saved_rip = s_mmio_fault_rip;
-    s_mmio_fault_rip = (uintptr_t)ep->ContextRecord->Rip;
+    s_mmio_fault_rip = (uintptr_t)XBOX_CONTEXT_PC(ep->ContextRecord);
     bool decoded = mmio_decode_and_run(ep->ContextRecord,
                                        (uint32_t)(fault - s_ap_lo),
                                        nv2a_mmio_rd_cb, nv2a_mmio_wr_cb, NULL);
@@ -1848,7 +1942,7 @@ static LONG CALLBACK nv2a_mmio_veh(PEXCEPTION_POINTERS ep)
     {
         static volatile LONG undecoded;
         if (InterlockedIncrement(&undecoded) <= 20) {
-            const uint8_t *ip = (const uint8_t *)ep->ContextRecord->Rip;
+            const uint8_t *ip = (const uint8_t *)XBOX_CONTEXT_PC(ep->ContextRecord);
             fprintf(stderr, "[GPU-VEH] undecoded %s at NV2A+0x%06llX, rip=%p "
                     "bytes %02X %02X %02X %02X %02X %02X %02X\n",
                     er->ExceptionInformation[0] == 1 ? "write" : "read",
@@ -2026,7 +2120,7 @@ static LONG CALLBACK access_veh(PEXCEPTION_POINTERS ep)
                         (unsigned long long)hit[i]->addr,
                         (unsigned long long)hit[i]->len, hit[i]->level,
                         GetCurrentThreadId(),
-                        (unsigned long long)(ep->ContextRecord->Rip -
+                        (unsigned long long)(XBOX_CONTEXT_PC(ep->ContextRecord) -
                             (uintptr_t)GetModuleHandleA(NULL)),
                         s_d->pgraph.frame_time,
                         (t1.QuadPart - t0.QuadPart) * 1000000LL / f.QuadPart);

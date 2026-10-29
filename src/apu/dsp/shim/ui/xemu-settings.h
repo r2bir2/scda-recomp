@@ -28,4 +28,9 @@ typedef struct XemuSettings {
     XemuSettingsAudio audio;
 } XemuSettings;
 
+/* Its own name: the GPU (src/gpu) has xemu's full `struct config g_config`,
+ * and two different objects under one symbol overlapped -- the small APU
+ * definition won and GPU settings were written past its end (found linking
+ * the ARM port with -fcommon, docs Update 677). */
+#define g_config g_apu_config
 extern XemuSettings g_config;

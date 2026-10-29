@@ -13,6 +13,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Faulting host pc of a CONTEXT (xbox_winnt.h defines it on hosts where the
+ * runtime's own NT vocabulary is used; with the Windows SDK it is Rip). */
+#ifndef XBOX_CONTEXT_PC
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define XBOX_CONTEXT_PC(c) ((c)->Pc)
+#else
+#define XBOX_CONTEXT_PC(c) ((c)->Rip)
+#endif
+#endif
+
 typedef uint64_t (*mmio_read_fn)(void *opaque, uint32_t off, unsigned size);
 typedef void (*mmio_write_fn)(void *opaque, uint32_t off, uint64_t val,
                               unsigned size);

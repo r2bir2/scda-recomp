@@ -434,6 +434,15 @@ static void download_surface_to_buffer(NV2AState *d, SurfaceBinding *surface,
                              BUFFER_COMPUTE_DST :
                              BUFFER_STAGING_DST;
     VkBuffer copy_buffer = r->storage_buffers[copy_buffer_idx].buffer;
+    if (use_compute_to_convert_depth_stencil_format &&
+        (size_t)scaled_width * scaled_height * 5 >
+            r->storage_buffers[BUFFER_COMPUTE_DST].buffer_size) {
+        static int warned;
+        if (!warned++)
+            fprintf(stderr, "[VK] WARNING: %ux%u depth surface exceeds the "
+                    "conversion buffer (docs Update 673)\n",
+                    scaled_width, scaled_height);
+    }
 
     {
         VkBufferMemoryBarrier pre_copy_dst_barrier = {

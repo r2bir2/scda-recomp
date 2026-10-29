@@ -406,9 +406,16 @@ static ShaderBinding *gen_shaders(PGRAPHState *pg, ShaderState *state)
         /* Ensure numeric values are printed with '.' radix, no grouping */
         setlocale(LC_NUMERIC, "C");
 
-        MString *geometry_shader_code = pgraph_gen_geom_glsl(
-            state->polygon_front_mode, state->polygon_back_mode,
-            state->primitive_mode, state->smooth_shading, true);
+        /* Mali mode (docs Update 675): no geometry stage; draw.c splits
+         * quads into triangles and the provoking-vertex extension covers
+         * flat polygons */
+        MString *geometry_shader_code =
+            r->geometry_shader_supported ?
+                pgraph_gen_geom_glsl(state->polygon_front_mode,
+                                     state->polygon_back_mode,
+                                     state->primitive_mode,
+                                     state->smooth_shading, true) :
+                NULL;
         if (geometry_shader_code) {
             NV2A_VK_DPRINTF("geometry shader: \n%s",
                             mstring_get_str(geometry_shader_code));

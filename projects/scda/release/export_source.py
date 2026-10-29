@@ -90,6 +90,7 @@ def main():
                  os.path.join(DEST, "docs", "xboxrecomp_README.md"))
     shutil.copy2(os.path.join(HERE, "repo_README.md"), os.path.join(DEST, "README.md"))
     shutil.copy2(os.path.join(HERE, "repo_gitignore"), os.path.join(DEST, ".gitignore"))
+    shutil.copy2(os.path.join(HERE, "CHANGELOG.md"), os.path.join(DEST, "CHANGELOG.md"))
 
     # ---- scan ----
     problems = []
@@ -120,7 +121,7 @@ def main():
                 data = open(p, "rb").read()
                 if any(k in data for k in key_parts) or any(h in data for h in key_hex):
                     problems.append("console key bytes in: " + rel)
-    print("files:", len(files) + len(EXTRA) + 3, " size: %.1f MB" % (total / 1048576))
+    print("files:", len(files) + len(EXTRA) + 4, " size: %.1f MB" % (total / 1048576))
     print("key check:", "done" if key_parts else "skipped (no xbox_keys.bin)")
     if problems:
         print("PROBLEMS:")

@@ -43,6 +43,8 @@ LICENSES = {
     "Vulkan-Headers_LICENSE.txt": "src/gpu/thirdparty/Vulkan-Headers/LICENSE",
     "VulkanMemoryAllocator_LICENSE.txt":
         "src/gpu/thirdparty/VulkanMemoryAllocator/LICENSE.txt",
+    # HLE renderer code taken from SCDA-XBERecomp (off by default, docs Update 686)
+    "SCDA-XBERecomp_LICENSE_MIT.txt": "projects/scda/src/hle/tgp/LICENSE",
 }
 
 OTHER_LICENSES = """Further components without a licence file in this folder
@@ -101,6 +103,7 @@ def main():
     with open(os.path.join(out, "scda_options.txt"), "w", newline="") as f:
         f.write(options_template())
     shutil.copy2(os.path.join(HERE, "README.txt"), os.path.join(out, "README.txt"))
+    shutil.copy2(os.path.join(HERE, "CHANGELOG.md"), os.path.join(out, "CHANGELOG.txt"))
     with open(os.path.join(out, "gamefiles", "put_the_game_here.txt"), "w",
               newline="\r\n") as f:
         f.write(GAMEFILES_NOTE)

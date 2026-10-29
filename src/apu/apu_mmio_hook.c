@@ -321,4 +321,31 @@ bool apu_hook_handle_mmio(PCONTEXT ctx, uintptr_t fault_addr,
     return ok;
 }
 
+#else /* !_WIN32 */
+
+/* Linux (ARM port, docs Update 677): the shared decoder (kernel/
+ * mmio_decode*.c, x86-64 or AArch64) emulates the faulting access. */
+#include "../kernel/mmio_decode.h"
+
+#define APU_MMIO_BASE  0xFE800000u
+
+static uint64_t apu_mmio_rd(void *opaque, uint32_t off, unsigned size)
+{
+    return opaque ? mcpx_apu_mmio_read((MCPXAPUState *)opaque, off, size) : 0;
+}
+
+static void apu_mmio_wr(void *opaque, uint32_t off, uint64_t val, unsigned size)
+{
+    if (opaque)
+        mcpx_apu_mmio_write((MCPXAPUState *)opaque, off, val, size);
+}
+
+bool apu_hook_handle_mmio(PCONTEXT ctx, uintptr_t fault_addr,
+                          uint32_t fault_xbox_va, int is_write)
+{
+    (void)fault_addr; (void)is_write;
+    return mmio_decode_and_run(ctx, fault_xbox_va - APU_MMIO_BASE,
+                               apu_mmio_rd, apu_mmio_wr, g_apu_state);
+}
+
 #endif /* _WIN32 */

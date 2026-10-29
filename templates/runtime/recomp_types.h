@@ -61,7 +61,10 @@
  * missing stdlib.h in kernel_bridge.c, in a hotter path. */
 #include <math.h>
 /* SSE2 conversions / MXCSR access for the rounding helpers below. */
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #include <emmintrin.h>
+#define RECOMP_HOST_X86 1
+#endif
 
 /* MSVC's __forceinline -> gcc/clang equivalent on POSIX. */
 #if !defined(_MSC_VER) && !defined(__forceinline)
@@ -355,6 +358,7 @@ static inline double recomp_x87_round(double v) {
     }
     }
 }
+#if defined(RECOMP_HOST_X86)
 static inline int32_t recomp_cvtss2si(float v) {
     return _mm_cvtss_si32(_mm_set_ss(v));
 }
@@ -373,6 +377,42 @@ static inline void recomp_ldmxcsr(uint32_t v) {
 static inline uint32_t recomp_stmxcsr(void) {
     return _mm_getcsr();
 }
+#else
+/* Non-x86 hosts (ARM port, docs Update 677): the conversions follow the
+ * guest MXCSR kept here, with x86 semantics -- out of range or NaN gives the
+ * "integer indefinite" 0x80000000 (ARM would saturate instead). */
+extern RECOMP_TLS uint32_t g_recomp_mxcsr;
+static inline int32_t recomp_cvt_rc(double v, unsigned rc) {
+    double r;
+    if (v != v) return (int32_t)0x80000000u;
+    switch (rc & 3u) {
+    case 1: r = floor(v); break;
+    case 2: r = ceil(v); break;
+    case 3: r = trunc(v); break;
+    default: r = nearbyint(v); break;   /* host default mode: to nearest even */
+    }
+    if (r < -2147483648.0 || r > 2147483647.0) return (int32_t)0x80000000u;
+    return (int32_t)r;
+}
+static inline int32_t recomp_cvtss2si(float v) {
+    return recomp_cvt_rc(v, g_recomp_mxcsr >> 13);
+}
+static inline int32_t recomp_cvtsd2si(double v) {
+    return recomp_cvt_rc(v, g_recomp_mxcsr >> 13);
+}
+static inline int32_t recomp_cvttss2si(float v) {
+    return recomp_cvt_rc(v, 3);
+}
+static inline int32_t recomp_cvttsd2si(double v) {
+    return recomp_cvt_rc(v, 3);
+}
+static inline void recomp_ldmxcsr(uint32_t v) {
+    g_recomp_mxcsr = (v & 0xE040u) | 0x1F80u;
+}
+static inline uint32_t recomp_stmxcsr(void) {
+    return g_recomp_mxcsr;
+}
+#endif
 
 /* Result of an x87 compare, in the shape the status word wants:
  *   -1 less, 0 equal, 1 greater, 2 unordered (either operand is NaN).

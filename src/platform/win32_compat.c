@@ -288,6 +288,13 @@ const char *w32_handle_path(HANDLE h)
     return (o && o->kind == K_FILE) ? o->file_path : NULL;
 }
 
+DWORD GetThreadId(HANDLE h)
+{
+    w32_object *o = (w32_object *)h;
+    if (h == PSEUDO_CURRENT_THREAD) return GetCurrentThreadId();
+    return (o && o->kind == K_THREAD) ? o->tid : 0;
+}
+
 BOOL CloseHandle(HANDLE h)
 {
     if (!h || h == PSEUDO_CURRENT_THREAD || h == PSEUDO_CURRENT_PROCESS ||
@@ -568,11 +575,61 @@ BOOL ReleaseMutex(HANDLE h)
 /* Threads                                                               */
 /* ===================================================================== */
 
+/* Thread affinity as on Windows (ARM port, docs Update 677): a new thread
+ * starts with the process affinity, not its creator's thread mask -- Linux
+ * hands down the creator's mask, so every thread a pinned guest thread made
+ * ran on the guest's core. The process affinity is what the process started
+ * with, or what w32_set_default_thread_affinity set (the counterpart of the
+ * Windows build's CPU-set reservation of the guest core). */
+static cpu_set_t s_initial_set;
+static volatile DWORD_PTR s_default_thread_mask;
+
+__attribute__((constructor)) static void w32_capture_initial_affinity(void)
+{
+    if (sched_getaffinity(0, sizeof(s_initial_set), &s_initial_set) != 0)
+        CPU_ZERO(&s_initial_set);
+}
+
+void w32_set_default_thread_affinity(DWORD_PTR mask)
+{
+    s_default_thread_mask = mask;
+}
+
+static void apply_default_affinity(pthread_t t)
+{
+    DWORD_PTR m = s_default_thread_mask;
+    if (m) {
+        cpu_set_t set;
+        CPU_ZERO(&set);
+        for (int i = 0; i < (int)(8 * sizeof(m)) && i < CPU_SETSIZE; i++)
+            if (m & ((DWORD_PTR)1 << i))
+                CPU_SET(i, &set);
+        pthread_setaffinity_np(t, sizeof(set), &set);
+    } else if (CPU_COUNT(&s_initial_set)) {
+        pthread_setaffinity_np(t, sizeof(s_initial_set), &s_initial_set);
+    }
+}
+
+/* the pthread behind a CreateThread handle (affinity of another thread) */
+int w32_thread_pthread(HANDLE h, pthread_t *out)
+{
+    w32_object *o = (w32_object *)h;
+    if (h == PSEUDO_CURRENT_THREAD) {
+        *out = pthread_self();
+        return 1;
+    }
+    if (!o || o->kind != K_THREAD)
+        return 0;
+    *out = o->thread;
+    return 1;
+}
+
 static void *thread_trampoline(void *arg)
 {
     w32_object *o = (w32_object *)arg;
     t_self_obj = o;
     t_tid      = o->tid;
+    apply_default_affinity(pthread_self());
 
     /* CREATE_SUSPENDED gate */
     pthread_mutex_lock(&o->lock);
@@ -905,9 +962,18 @@ LPVOID VirtualAlloc(LPVOID address, SIZE_T size, DWORD allocationType, DWORD pro
     }
 
     if (address) flags |= MAP_FIXED_NOREPLACE;
-    void *p = mmap(address, size, prot ? prot : PROT_READ | PROT_WRITE,
-                   flags, -1, 0);
+    /* reserved-only memory is inaccessible until committed, as on Windows
+     * (ARM port, docs Update 677) */
+    if (!(allocationType & MEM_COMMIT))
+        prot = PROT_NONE;
+    void *p = mmap(address, size, prot, flags, -1, 0);
     if (p == MAP_FAILED) { SetLastError(8); return NULL; }
+    /* kernels before 4.17 take MAP_FIXED_NOREPLACE as a hint */
+    if (address && p != address) {
+        munmap(p, size);
+        SetLastError(487);   /* ERROR_INVALID_ADDRESS */
+        return NULL;
+    }
     return p;
 }
 
@@ -1018,104 +1084,77 @@ unsigned int _clearfp(void)
     return 0;
 }
 
-/* ===================================================================== */
-/* Win32 file API on POSIX (open/read/write/fstat-backed)                */
-/* ===================================================================== */
-
-#include <fcntl.h>
-#include <sys/stat.h>
-
-HANDLE CreateFileA(LPCSTR name, DWORD access, DWORD share,
-                   LPSECURITY_ATTRIBUTES sa, DWORD disp,
-                   DWORD flags, HANDLE templ)
-{
-    (void)share; (void)sa; (void)flags; (void)templ;
-    if (!name) { SetLastError(ERROR_INVALID_PARAMETER); return INVALID_HANDLE_VALUE; }
-
-    int rw = O_RDONLY;
-    int wantW = (access & (GENERIC_WRITE | GENERIC_ALL)) != 0;
-    int wantR = (access & (GENERIC_READ  | GENERIC_ALL)) != 0;
-    if (wantW && wantR) rw = O_RDWR;
-    else if (wantW)     rw = O_WRONLY;
-
-    int extra = 0;
-    switch (disp) {
-    case CREATE_NEW:        extra = O_CREAT | O_EXCL;  break;
-    case CREATE_ALWAYS:     extra = O_CREAT | O_TRUNC; break;
-    case OPEN_EXISTING:     extra = 0;                 break;
-    case OPEN_ALWAYS:       extra = O_CREAT;           break;
-    case TRUNCATE_EXISTING: extra = O_TRUNC;           break;
-    default:                extra = 0;                 break;
-    }
-    if ((extra & (O_CREAT | O_TRUNC)) && rw == O_RDONLY) rw = O_RDWR;
-
-    /* Normalise embedded Windows-style backslashes before open(). */
-    char norm[1024];
-    snprintf(norm, sizeof(norm), "%s", name);
-    xbox_path_normalize(norm);
-    int fd = open(norm, rw | extra, 0644);
-    if (fd < 0) { SetLastError(ERROR_FILE_NOT_FOUND); return INVALID_HANDLE_VALUE; }
-    return w32_open_handle(fd, name);
-}
-
-HANDLE CreateFileW(LPCWSTR name, DWORD access, DWORD share,
-                   LPSECURITY_ATTRIBUTES sa, DWORD disp,
-                   DWORD flags, HANDLE templ)
-{
-    /* Basic UTF-16 -> UTF-8 (ASCII path of WideCharToMultiByte). */
-    char buf[1024];
-    int len = WideCharToMultiByte(CP_UTF8, 0, name, -1, buf, sizeof(buf), NULL, NULL);
-    if (len <= 0) buf[0] = '\0';
-    return CreateFileA(buf, access, share, sa, disp, flags, templ);
-}
-
-BOOL ReadFile(HANDLE h, LPVOID buf, DWORD len, LPDWORD nread, void *overlapped)
-{
-    (void)overlapped;
-    int fd = w32_handle_fd(h);
-    if (fd < 0) { if (nread) *nread = 0; SetLastError(ERROR_INVALID_HANDLE); return FALSE; }
-    ssize_t n = read(fd, buf, len);
-    if (n < 0)  { if (nread) *nread = 0; SetLastError(ERROR_GEN_FAILURE);    return FALSE; }
-    if (nread)  *nread = (DWORD)n;
-    return TRUE;
-}
-
-BOOL WriteFile(HANDLE h, LPCVOID buf, DWORD len, LPDWORD nwritten, void *overlapped)
-{
-    (void)overlapped;
-    int fd = w32_handle_fd(h);
-    if (fd < 0) { if (nwritten) *nwritten = 0; SetLastError(ERROR_INVALID_HANDLE); return FALSE; }
-    ssize_t n = write(fd, buf, len);
-    if (n < 0)  { if (nwritten) *nwritten = 0; SetLastError(ERROR_GEN_FAILURE);    return FALSE; }
-    if (nwritten) *nwritten = (DWORD)n;
-    return TRUE;
-}
-
-DWORD GetFileSize(HANDLE h, LPDWORD high)
-{
-    int fd = w32_handle_fd(h);
-    if (fd < 0) return INVALID_FILE_SIZE;
-    struct stat st;
-    if (fstat(fd, &st) != 0) return INVALID_FILE_SIZE;
-    if (high) *high = (DWORD)(((uint64_t)st.st_size >> 32) & 0xFFFFFFFFu);
-    return (DWORD)(st.st_size & 0xFFFFFFFFu);
-}
-
-BOOL FlushFileBuffers(HANDLE h)
-{
-    int fd = w32_handle_fd(h);
-    if (fd < 0) return FALSE;
-    return fsync(fd) == 0;
-}
+/* The Win32 file API is in win32_compat_file.c. */
 
 /* ===================================================================== */
-/* Keyboard + window helpers -- stubs. Real keyboard polling will come   */
-/* via SDL_GetKeyboardState when main.c gets its SDL2 port.              */
+/* Keyboard, gamepad and window focus. The host window (src/video/       */
+/* fb_present_sdl.c) feeds key and pad state in through w32_input_*;     */
+/* the runtime reads it with the Win32/XInput calls it was written for.  */
 /* ===================================================================== */
 
-SHORT GetAsyncKeyState(int vKey)          { (void)vKey; return 0; }
+static volatile uint8_t s_vk_down[256];
+static volatile uint8_t s_vk_toggled[256];
+static volatile HWND s_foreground;
+#define W32_PADS 4
+static XINPUT_STATE s_pad[W32_PADS];
+static volatile int s_pad_connected[W32_PADS];
+static XINPUT_VIBRATION s_rumble[W32_PADS];
+static volatile LONG s_rumble_seq[W32_PADS];
+static pthread_mutex_t s_pad_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void w32_input_set_key(int vk, int down)
+{
+    if (vk <= 0 || vk > 255) return;
+    if (down && !s_vk_down[vk]) s_vk_toggled[vk] ^= 1;
+    s_vk_down[vk] = (uint8_t)(down != 0);
+}
+
+void w32_input_set_pad(int idx, const XINPUT_STATE *st, int connected)
+{
+    if (idx < 0 || idx >= W32_PADS) return;
+    pthread_mutex_lock(&s_pad_lock);
+    if (st) s_pad[idx] = *st;
+    s_pad_connected[idx] = connected;
+    pthread_mutex_unlock(&s_pad_lock);
+}
+
+LONG w32_input_get_rumble(int idx, XINPUT_VIBRATION *v)
+{
+    if (idx < 0 || idx >= W32_PADS) return 0;
+    pthread_mutex_lock(&s_pad_lock);
+    *v = s_rumble[idx];
+    pthread_mutex_unlock(&s_pad_lock);
+    return s_rumble_seq[idx];
+}
+
+void w32_set_foreground_window(HWND h) { s_foreground = h; }
+
+SHORT GetAsyncKeyState(int vKey)
+{
+    if (vKey <= 0 || vKey > 255) return 0;
+    if (vKey == VK_SHIFT)
+        return (SHORT)((s_vk_down[VK_LSHIFT] | s_vk_down[VK_RSHIFT]) ? 0x8000 : 0);
+    if (vKey == VK_CONTROL)
+        return (SHORT)((s_vk_down[VK_LCONTROL] | s_vk_down[VK_RCONTROL]) ? 0x8000 : 0);
+    if (vKey == VK_MENU)
+        return (SHORT)((s_vk_down[VK_LMENU] | s_vk_down[VK_RMENU]) ? 0x8000 : 0);
+    return (SHORT)(s_vk_down[vKey] ? 0x8000 : 0);
+}
+
+SHORT GetKeyState(int vKey)
+{
+    if (vKey <= 0 || vKey > 255) return 0;
+    return (SHORT)((GetAsyncKeyState(vKey) & 0x8000) | (s_vk_toggled[vKey] & 1));
+}
+
+HWND  GetForegroundWindow(void)           { return s_foreground; }
+DWORD GetWindowThreadProcessId(HWND h, LPDWORD pid)
+{
+    if (pid) *pid = h ? (DWORD)getpid() : 0;
+    return h ? 1 : 0;
+}
 HWND  FindWindowA(LPCSTR c, LPCSTR w)     { (void)c; (void)w; return NULL; }
-HWND  GetActiveWindow(void)               { return NULL; }
+HWND  GetActiveWindow(void)               { return s_foreground; }
 BOOL  SetWindowTextA(HWND h, LPCSTR t)    { (void)h; (void)t; return TRUE; }
 int   GetWindowTextA(HWND h, LPSTR t, int n) { (void)h; (void)t; (void)n; return 0; }
 BOOL  EnumWindows(WNDENUMPROC p, LPARAM l) { (void)p; (void)l; return FALSE; }
@@ -1125,7 +1164,8 @@ int MessageBoxA(HWND h, LPCSTR text, LPCSTR caption, UINT type)
     (void)h; (void)type;
     fprintf(stderr, "[%s] %s\n", caption ? caption : "MessageBox",
                                    text    ? text    : "");
-    return 1;   /* IDOK */
+    /* no dialog: a question is answered with its affirmative button */
+    return (type & 0xF) == MB_YESNO ? IDYES : IDOK;
 }
 
 /* Message-loop stubs: no Win32 messages on POSIX (SDL events drive the
@@ -1135,9 +1175,44 @@ BOOL    PeekMessageA(LPMSG m, HWND w, UINT a, UINT b, UINT f)
 BOOL    TranslateMessage(const MSG *m) { (void)m; return TRUE; }
 LRESULT DispatchMessageA(const MSG *m) { (void)m; return 0; }
 
-/* XInput stub: real gamepad is wired through input_compat (SDL2). */
 DWORD XInputGetState(DWORD idx, XINPUT_STATE *state)
-{ (void)idx; if (state) memset(state, 0, sizeof(*state)); return ERROR_DEVICE_NOT_CONNECTED; }
+{
+    DWORD r = ERROR_DEVICE_NOT_CONNECTED;
+    if (state) memset(state, 0, sizeof(*state));
+    if (idx >= W32_PADS) return r;
+    pthread_mutex_lock(&s_pad_lock);
+    if (s_pad_connected[idx]) {
+        if (state) *state = s_pad[idx];
+        r = ERROR_SUCCESS;
+    }
+    pthread_mutex_unlock(&s_pad_lock);
+    return r;
+}
+
+DWORD XInputSetState(DWORD idx, XINPUT_VIBRATION *v)
+{
+    if (idx >= W32_PADS || !v) return ERROR_DEVICE_NOT_CONNECTED;
+    pthread_mutex_lock(&s_pad_lock);
+    s_rumble[idx] = *v;
+    s_rumble_seq[idx]++;
+    pthread_mutex_unlock(&s_pad_lock);
+    return s_pad_connected[idx] ? ERROR_SUCCESS : ERROR_DEVICE_NOT_CONNECTED;
+}
+
+DWORD XInputGetCapabilities(DWORD idx, DWORD flags, XINPUT_CAPABILITIES *caps)
+{
+    (void)flags;
+    if (idx >= W32_PADS || !s_pad_connected[idx]) return ERROR_DEVICE_NOT_CONNECTED;
+    if (caps) {
+        memset(caps, 0, sizeof(*caps));
+        caps->Type = 1;      /* XINPUT_DEVTYPE_GAMEPAD */
+        caps->SubType = 1;   /* XINPUT_DEVSUBTYPE_GAMEPAD */
+        caps->Gamepad.wButtons = 0xF3FF;
+        caps->Gamepad.bLeftTrigger = caps->Gamepad.bRightTrigger = 0xFF;
+        caps->Vibration.wLeftMotorSpeed = caps->Vibration.wRightMotorSpeed = 0xFFFF;
+    }
+    return ERROR_SUCCESS;
+}
 
 BOOL TerminateProcess(HANDLE process, UINT exitCode)
 {
@@ -1290,10 +1365,17 @@ LPVOID MapViewOfFileEx(HANDLE mapping, DWORD access, DWORD offHigh, DWORD offLow
     off_t  off = ((off_t)offHigh << 32) | offLow;
     SIZE_T len = count ? count : (o->map_size - (SIZE_T)off);
     int prot   = PROT_READ | ((access != FILE_MAP_READ) ? PROT_WRITE : 0);
-    int flags  = MAP_SHARED | (baseAddr ? MAP_FIXED : 0);
+    /* Windows fails a view over memory that is already in use; MAP_FIXED
+     * would silently replace it (ARM port, docs Update 677) */
+    int flags  = MAP_SHARED | (baseAddr ? MAP_FIXED_NOREPLACE : 0);
 
     void *p = mmap(baseAddr, len, prot, flags, o->fd, off);
     if (p == MAP_FAILED) { SetLastError(ERROR_NOT_ENOUGH_MEMORY); return NULL; }
+    if (baseAddr && p != baseAddr) {
+        munmap(p, len);
+        SetLastError(487);   /* ERROR_INVALID_ADDRESS */
+        return NULL;
+    }
     view_register(p, len);
     return p;
 }
@@ -1459,8 +1541,6 @@ VOID RaiseException(DWORD code, DWORD flags, DWORD nargs, const ULONG_PTR *args)
     /* TODO: on Windows this does not return; SEH dispatch unimplemented. */
 }
 
-PVOID AddVectoredExceptionHandler(ULONG First, PVECTORED_EXCEPTION_HANDLER Handler)
-{ (void)First; (void)Handler; return NULL; }   /* TODO: wire to sigaction */
-ULONG RemoveVectoredExceptionHandler(PVOID h) { (void)h; return 1; }
+/* AddVectoredExceptionHandler: win32_compat_ext.c (signals, docs Update 677) */
 
 #endif /* !_WIN32 */

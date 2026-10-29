@@ -3,6 +3,8 @@
  * MCPX ACI (mcpx_aci.c) uses the same decoder. */
 #include "mmio_decode.h"
 
+#if defined(__x86_64__) || defined(_M_X64)   /* AArch64: mmio_decode_arm64.c */
+
 typedef struct {
     mmio_read_fn rd;
     mmio_write_fn wr;
@@ -243,3 +245,5 @@ bool mmio_decode_and_run(PCONTEXT ctx, uint32_t off, mmio_read_fn rd,
     }
     return false;
 }
+
+#endif /* x86-64 */

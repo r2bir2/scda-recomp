@@ -29,6 +29,15 @@ add_compile_definitions(
 # Platform: Win32/NT type vocabulary + POSIX implementation of generic
 # Win32 host primitives. Carries no Xbox semantics; provides the foundation
 # the kernel HLE and the graphics/audio/input layers build on.
+if(NOT WIN32)
+    option(XBOX_POSIX_GPU "Build the NV2A GPU (Vulkan renderer) on POSIX hosts" ON)
+    # windows.h & co. for every target on POSIX hosts (ARM port, docs Update 677)
+    include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/src/platform/posix_include
+                        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # 16-bit wchar_t, so L"..." matches the runtime's WCHAR (win32_compat.h
+    # routes the wcs* calls to 16-bit implementations)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-fshort-wchar>)
+endif()
 add_subdirectory(src/platform)
 
 # Core: Xbox kernel replacement (memory layout, file I/O, threading, sync)
@@ -47,7 +56,8 @@ add_subdirectory(src/apu)
 add_subdirectory(src/nv2a)
 
 # GPU: xemu's NV2A PFIFO/PGRAPH core + OpenGL renderer (RECOMP_NV2A_XEMU=1)
-if(WIN32)
+# (on Linux too since the ARM port, docs Update 677: Vulkan renderer + EGL)
+if(WIN32 OR XBOX_POSIX_GPU)
     add_subdirectory(src/gpu)
 endif()
 
@@ -70,7 +80,7 @@ target_link_libraries(xboxrecomp INTERFACE
     xbox_nv2a
     xbox_video
 )
-if(WIN32)
+if(TARGET xbox_gpu)
     target_link_libraries(xboxrecomp INTERFACE xbox_gpu)
 endif()
 

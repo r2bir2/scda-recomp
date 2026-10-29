@@ -929,7 +929,7 @@ static LONG CALLBACK aci_mmio_veh(PEXCEPTION_POINTERS ep)
     {
         static volatile LONG undecoded;
         if (InterlockedIncrement(&undecoded) <= 20) {
-            const uint8_t *ip = (const uint8_t *)ep->ContextRecord->Rip;
+            const uint8_t *ip = (const uint8_t *)XBOX_CONTEXT_PC(ep->ContextRecord);
             fprintf(stderr, "[ACI] undecoded %s at ACI+0x%03llX, rip=%p "
                     "bytes %02X %02X %02X %02X %02X %02X\n",
                     er->ExceptionInformation[0] == 1 ? "write" : "read",

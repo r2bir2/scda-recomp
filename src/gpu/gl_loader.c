@@ -4,7 +4,11 @@
  * the first WGL context current (gloffscreen_wgl.c). Local code for
  * xboxrecomp, see src/gpu/PROVENANCE.md.
  */
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <EGL/egl.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -16,6 +20,7 @@
 
 /* wglGetProcAddress returns 0/1/2/3/-1 for failure, and nothing at all for
  * the OpenGL 1.1 functions opengl32.dll exports directly. */
+#if defined(_WIN32)
 static void *load_one(HMODULE gl32, const char *name)
 {
     void *p = (void *)wglGetProcAddress(name);
@@ -24,14 +29,28 @@ static void *load_one(HMODULE gl32, const char *name)
         p = (void *)GetProcAddress(gl32, name);
     return p;
 }
-
-bool nv2a_gl_loader_init(void)
+#else
+/* Mesa's eglGetProcAddress resolves core entry points too
+ * (EGL_KHR_get_all_proc_addresses); gloffscreen_egl.c, docs Update 677 */
+typedef void *HMODULE;
+static void *load_one(HMODULE unused, const char *name)
 {
-    HMODULE gl32 = GetModuleHandleA("opengl32.dll");
+    (void)unused;
+    return (void *)eglGetProcAddress(name);
+}
+#endif
+
+bool nv2a_gl_loader_init(bool strict)
+{
     int missing = 0;
+#if defined(_WIN32)
+    HMODULE gl32 = GetModuleHandleA("opengl32.dll");
 
     if (!gl32)
         gl32 = LoadLibraryA("opengl32.dll");
+#else
+    HMODULE gl32 = NULL;
+#endif
     /* EXT entry points (GL_EXT_memory_object, used only by the Vulkan
      * renderer's display interop) are optional: a driver without them can
      * still run the OpenGL renderer. */
@@ -42,7 +61,7 @@ bool nv2a_gl_loader_init(void)
         bool optional_ = len_ > 3 && !strcmp(#name + len_ - 3, "EXT");    \
         fprintf(stderr, "[GPU-GL] missing %sentry point %s\n",            \
                 optional_ ? "optional " : "", #name);                     \
-        if (!optional_)                                                   \
+        if (!optional_ && strict)                                         \
             missing++;                                                    \
     }
 #include "gl_funcs.h"

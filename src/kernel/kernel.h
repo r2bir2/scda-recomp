@@ -532,7 +532,7 @@ void xbox_path_set_partition1_dir(const char* dir);
  * chars; POSIX takes bytes. kernel_path.c and kernel_file.c are split on
  * _WIN32 and each side uses the matching type.
  */
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(XBOX_POSIX_WIN32_SHIM)
 typedef WCHAR xbox_host_char;
 #else
 typedef char  xbox_host_char;

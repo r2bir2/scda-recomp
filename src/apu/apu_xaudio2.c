@@ -103,10 +103,23 @@ int xa2_init(void)
     }
 
     /* 5.1 goes to the device's own layout (XAudio2 downmixes it for a
-     * stereo device); stereo keeps the fixed stereo master as before. */
+     * stereo device); stereo keeps the fixed stereo master as before.
+     * AudioDevice (RECOMP_AUDIO_DEVICE: hdmi, spdif, ... or part of a name)
+     * picks the output for every mode, not only the Dolby Digital
+     * passthrough (docs Update 662); empty = the Windows default. */
+    wchar_t device_id[512];
+    const wchar_t *device = apu_output_device_id(device_id, 512) ? device_id
+                                                                  : NULL;
     hr = IXAudio2_CreateMasteringVoice(g_xa2, &g_xa2_master,
         XA2_CHANNELS == 2 ? XA2_CHANNELS : XAUDIO2_DEFAULT_CHANNELS,
-        XA2_SAMPLE_RATE, 0, NULL, NULL, 0);
+        XA2_SAMPLE_RATE, 0, device, NULL, 0);
+    if (FAILED(hr) && device) {
+        fprintf(stderr, "[XA2] AudioDevice output failed (0x%08lX), "
+                        "using the Windows default\n", hr);
+        hr = IXAudio2_CreateMasteringVoice(g_xa2, &g_xa2_master,
+            XA2_CHANNELS == 2 ? XA2_CHANNELS : XAUDIO2_DEFAULT_CHANNELS,
+            XA2_SAMPLE_RATE, 0, NULL, NULL, 0);
+    }
     if (FAILED(hr)) {
         fprintf(stderr, "[XA2] CreateMasteringVoice failed: 0x%08lX\n", hr);
         IXAudio2_Release(g_xa2);
@@ -372,16 +385,89 @@ int xa2_get_buffer_size(void)
     return XA2_BUF_SAMPLES;
 }
 
-#else /* !_WIN32 -- POSIX stubs (no audio output yet) */
+#else /* !_WIN32 -- SDL2 audio (ARM port, docs Update 677) */
 
-void xa2_set_channels(int c)                          { (void)c; }
-void xa2_set_silent(int s)                            { (void)s; }
-int  xa2_init(void)                                   { return 0; }
-void xa2_shutdown(void)                               {}
-int  xa2_is_active(void)                              { return 0; }
-int  xa2_queued(void)                                 { return -1; }
-void xa2_mute(void)                                   {}
-int  xa2_submit_samples(const int16_t *s, int n)      { (void)s; (void)n; return 0; }
-int  xa2_get_buffer_size(void)                        { return 0; }
+/* Same contract as the XAudio2 backend: 48 kHz 16-bit blocks of 256
+ * sample frames, and xa2_queued() counts queued blocks for the APU pacing
+ * (apu_core.c, docs Update 506). SDL's queue API holds the blocks. */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <SDL2/SDL.h>
+
+#define XA2_SAMPLE_RATE   48000
+#define XA2_BUF_SAMPLES   256
+#define XA2_NUM_BUFS      32
+
+static SDL_AudioDeviceID g_dev;
+static int g_channels = 2;
+static int g_silent;
+static int g_muted;
+static unsigned g_blocks, g_dropped;
+
+void xa2_set_channels(int c) { g_channels = (c == 6) ? 6 : 2; }
+void xa2_set_silent(int s)   { g_silent = s; }
+
+int xa2_init(void)
+{
+    SDL_AudioSpec want, have;
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        fprintf(stderr, "[XA2] SDL audio init failed: %s\n", SDL_GetError());
+        return 0;
+    }
+    memset(&want, 0, sizeof(want));
+    want.freq = XA2_SAMPLE_RATE;
+    want.format = AUDIO_S16SYS;
+    want.channels = (Uint8)g_channels;
+    want.samples = XA2_BUF_SAMPLES;
+    g_dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    if (!g_dev) {
+        fprintf(stderr, "[XA2] SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+        return 0;
+    }
+    SDL_PauseAudioDevice(g_dev, 0);
+    fprintf(stderr, "[XA2] SDL audio initialized (%d Hz %s 16-bit, %d-sample "
+            "device buffer, driver %s)\n", have.freq,
+            g_channels == 6 ? "5.1" : "stereo", have.samples,
+            SDL_GetCurrentAudioDriver());
+    return 1;
+}
+
+void xa2_shutdown(void)
+{
+    if (!g_dev) return;
+    SDL_CloseAudioDevice(g_dev);
+    g_dev = 0;
+    fprintf(stderr, "[XA2] Shut down (%u blocks written)\n", g_blocks);
+}
+
+int xa2_is_active(void) { return g_dev != 0; }
+
+int xa2_queued(void)
+{
+    if (!g_dev) return -1;
+    return (int)(SDL_GetQueuedAudioSize(g_dev) /
+                 (Uint32)(XA2_BUF_SAMPLES * g_channels * 2));
+}
+
+void xa2_mute(void) { g_muted = 1; }
+
+int xa2_submit_samples(const int16_t *samples, int num_samples)
+{
+    static int16_t zero[XA2_BUF_SAMPLES * 6];
+    int n = num_samples > XA2_BUF_SAMPLES ? XA2_BUF_SAMPLES : num_samples;
+    if (!g_dev) return 0;
+    if (xa2_queued() >= XA2_NUM_BUFS) {
+        g_dropped++;
+        return 0;
+    }
+    if (SDL_QueueAudio(g_dev, (g_silent || g_muted) ? zero : samples,
+                       (Uint32)(n * g_channels * 2)) != 0)
+        return 0;
+    g_blocks++;
+    return 1;
+}
+
+int xa2_get_buffer_size(void) { return XA2_BUF_SAMPLES; }
 
 #endif /* _WIN32 */

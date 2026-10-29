@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "gloffscreen.h"
 #include "GL/wglext.h"
@@ -90,14 +91,56 @@ static int glo_bootstrap(void)
 
 static HGLRC s_share_root;
 
+/* docs Update 675: OpenGL 4.0 core first (the OpenGL renderer needs it).
+ * Drivers without it (Mali/Panfrost: 3.1, here under Wine on ARM) still get
+ * a context for the Vulkan renderer's display window, which only presents
+ * through GL; nv2a_gl_legacy_context then tells the OpenGL renderer to stay
+ * away. */
+static const int s_ctx_versions[][3] = {
+    { 4, 0, WGL_CONTEXT_CORE_PROFILE_BIT_ARB },
+    { 3, 3, WGL_CONTEXT_CORE_PROFILE_BIT_ARB },
+    { 3, 2, WGL_CONTEXT_CORE_PROFILE_BIT_ARB },
+    { 3, 1, 0 },
+    { 3, 0, 0 },
+};
+static int s_ctx_version = -1;   /* index into s_ctx_versions once chosen */
+bool nv2a_gl_legacy_context;
+
+static HGLRC glo_create_versioned(HDC hdc, HGLRC share)
+{
+    int first = s_ctx_version >= 0 ? s_ctx_version : 0;
+    int last = s_ctx_version >= 0 ? s_ctx_version
+                                  : (int)(sizeof(s_ctx_versions) /
+                                          sizeof(s_ctx_versions[0])) - 1;
+    for (int i = first; i <= last; i++) {
+        int attribs[8], n = 0;
+        attribs[n++] = WGL_CONTEXT_MAJOR_VERSION_ARB;
+        attribs[n++] = s_ctx_versions[i][0];
+        attribs[n++] = WGL_CONTEXT_MINOR_VERSION_ARB;
+        attribs[n++] = s_ctx_versions[i][1];
+        if (s_ctx_versions[i][2]) {
+            attribs[n++] = WGL_CONTEXT_PROFILE_MASK_ARB;
+            attribs[n++] = s_ctx_versions[i][2];
+        }
+        attribs[n] = 0;
+        HGLRC rc = p_wglCreateContextAttribsARB(hdc, share, attribs);
+        if (rc) {
+            if (s_ctx_version < 0) {
+                s_ctx_version = i;
+                nv2a_gl_legacy_context = i > 0;
+                if (i > 0)
+                    fprintf(stderr, "[GPU-GL] OpenGL 4.0 core context not "
+                            "available, using %d.%d (display only)\n",
+                            s_ctx_versions[i][0], s_ctx_versions[i][1]);
+            }
+            return rc;
+        }
+    }
+    return NULL;
+}
+
 GloContext *glo_context_create(void)
 {
-    static const int attribs[] = {
-        WGL_CONTEXT_MAJOR_VERSION_ARB, 4,
-        WGL_CONTEXT_MINOR_VERSION_ARB, 0,
-        WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-        0
-    };
     GloContext *c = (GloContext *)calloc(1, sizeof(*c));
     /* Share with the caller's current context, or -- for a thread that has
      * none yet, such as the framebuffer window reading the display texture
@@ -117,9 +160,9 @@ GloContext *glo_context_create(void)
         fprintf(stderr, "[GPU-GL] SetPixelFormat failed (%lu)\n", GetLastError());
         exit(1);
     }
-    c->hglrc = p_wglCreateContextAttribsARB(c->hdc, share, attribs);
+    c->hglrc = glo_create_versioned(c->hdc, share);
     if (!c->hglrc) {
-        fprintf(stderr, "[GPU-GL] OpenGL 4.0 core context not available (%lu)\n",
+        fprintf(stderr, "[GPU-GL] no OpenGL 3.0+ context available (%lu)\n",
                 GetLastError());
         exit(1);
     }
@@ -127,7 +170,7 @@ GloContext *glo_context_create(void)
         s_share_root = c->hglrc;
     glo_set_current(c);
     if (!s_loader_ready) {
-        if (!nv2a_gl_loader_init()) {
+        if (!nv2a_gl_loader_init(!nv2a_gl_legacy_context)) {
             fprintf(stderr, "[GPU-GL] required GL entry points missing\n");
             exit(1);
         }

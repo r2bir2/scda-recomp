@@ -75,8 +75,13 @@ stated otherwise; the default is given in brackets.
                     1 = Dolby Digital 5.1 passed to an AV receiver (S/PDIF
                         or HDMI; set the volume on the receiver),
                     2 = 5.1 as multichannel PCM through Windows       (0)
-  AudioDevice       empty = Windows default, or part of a device name,
-                    e.g. AudioDevice = S/PDIF                     (empty)
+  AudioDevice       output for all sound modes: empty = Windows default,
+                    hdmi = first HDMI output, spdif / toslink / optical =
+                    first S/PDIF output, or part of the device name as
+                    Windows shows it. The outputs are listed in
+                    user\scda_runtime.log (lines starting with [AUDIO]).
+                    S/PDIF/Toslink carry 5.1 only as Dolby Digital
+                    (Surround = 1), HDMI also as PCM (Surround = 2). (empty)
   MuteInBackground  silent while the game window is not in front     (0)
 
 [Graphics]
@@ -88,9 +93,13 @@ stated otherwise; the default is given in brackets.
   FPS60Coop         the same for split-screen co-op (needs FPS60 = 1) (1)
   BloomSmoothing    0-3, smooths the glow effect at RenderScale > 1;
                     0 = off, 3 = steadier, wider glow                 (2)
-  AntiAliasing      smoothing of jagged edges                         (1)
+  AntiAliasing      smoothing of jagged edges (RenderScale 2-4 only)  (1)
+  TextureFiltering  0 = as on the Xbox, 1 = smooth texture detail     (2)
+                    switch, 2 = also sharp at shallow angles
   VSync             synchronise to the monitor (no tearing)           (1)
   Renderer          vulkan or opengl                             (vulkan)
+  GraphicsCard      empty = automatic (dedicated card first), or part
+                    of the card name, e.g. GTX (Vulkan only)       (empty)
 
 [Window]
   Fullscreen        1 = borderless fullscreen, 0 = window             (0)
@@ -100,6 +109,8 @@ stated otherwise; the default is given in brackets.
 [Game]
   Language          EN, DE, FR, ES, IT or JA                         (EN)
   SkipIntro         skip the logo and intro videos at start-up        (0)
+  NightVisionInterference  night-vision static and crackling sound in
+                    both JBA headquarters levels, 1 = as on the Xbox  (0)
   Keyboard          keyboard as player 1 in addition to a controller  (1)
   Keyboard2         numpad layout for player 2 in co-op (see below)   (1)
 

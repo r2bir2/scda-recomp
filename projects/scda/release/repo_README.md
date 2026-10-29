@@ -48,7 +48,7 @@ take effect on the next start. Delete the file to get the defaults back.
 |---|---|---|
 | **[Audio]** | | |
 | `Surround` | **0**, 1, 2 | 0 = stereo through Windows; 1 = Dolby Digital 5.1 passed through to an AV receiver (S/PDIF or HDMI, volume on the receiver); 2 = 5.1 as multichannel PCM through Windows |
-| `AudioDevice` | **empty**, part of a device name | Output device; empty = Windows default, e.g. `AudioDevice = S/PDIF` |
+| `AudioDevice` | **empty**, `hdmi`, `spdif` / `toslink` / `optical`, or part of a device name | Output for all sound modes: empty = Windows default, `hdmi` / `spdif` = first output of that type, otherwise the first device whose name contains the text (case-insensitive). The outputs are listed in `user\scda_runtime.log` (`[AUDIO]` lines). S/PDIF/Toslink carry 5.1 only as Dolby Digital (`Surround = 1`), HDMI also as PCM (`Surround = 2`) |
 | `MuteInBackground` | **0**, 1 | Silent while the game window is not in front |
 | **[Graphics]** | | |
 | `RenderScale` | 1, **2**, 3, 4 | Internal resolution as a multiple of the Xbox's 480 lines (2 = 960, 4 = 1920) |
@@ -56,9 +56,11 @@ take effect on the next start. Delete the file to get the defaults back.
 | `FPS60` | 0, **1** | 60 frames per second (1) or 30 as on the Xbox (0); videos always play at their own speed |
 | `FPS60Coop` | 0, **1** | The same for split-screen co-op (only with `FPS60 = 1`) |
 | `BloomSmoothing` | 0-3, **2** | Smooths what the glow effect samples at RenderScale > 1; 0 = off (small lights flicker in the glow), 3 = steadier, wider glow |
-| `AntiAliasing` | 0, **1** | Smooths jagged edges of the finished picture |
+| `TextureFiltering` | 0, 1, **2** | 0 = as on the Xbox (textures switch abruptly to a blurrier detail level), 1 = smooth switch, 2 = smooth and sharp on surfaces seen at a shallow angle (anisotropic filtering) |
+| `AntiAliasing` | 0, **1** | Smooths jagged edges of the finished picture (only at RenderScale 2-4; at 1 it is skipped because it would blur the HUD) |
 | `VSync` | 0, **1** | Synchronise to the monitor (no tearing) |
 | `Renderer` | **vulkan**, opengl | Graphics backend |
+| `GraphicsCard` | **empty**, name part | Vulkan only: empty = the dedicated graphics card if there is one (e.g. NVIDIA instead of Intel on laptops); otherwise part of the card name, e.g. `GTX` |
 | **[Window]** | | |
 | `Fullscreen` | **0**, 1 | Borderless fullscreen (1) or window (0) |
 | `Monitor` | **1**, 2, ... | Screen the game starts on (1 = primary) |
@@ -66,6 +68,7 @@ take effect on the next start. Delete the file to get the defaults back.
 | **[Game]** | | |
 | `Language` | **EN**, DE, FR, ES, IT, JA | Game language (text and speech, as far as your game version includes it) |
 | `SkipIntro` | **0**, 1 | Skip the logo and intro videos at start-up |
+| `NightVisionInterference` | **0**, 1 | Night-vision interference (flickering static and crackling sound) near lights in both JBA headquarters levels; 0 = clean as in the other missions, 1 = as on the Xbox |
 | `Keyboard` | 0, **1** | Keyboard as player 1 in addition to a controller |
 | `Keyboard2` | 0, **1** | Second keyboard layout (numpad, NumLock on) for player 2 in co-op; 0 = arrow keys are player 1's D-pad |
 

@@ -18,6 +18,7 @@
  */
 
 #include "qemu/osdep.h"
+#include <ctype.h>
 #include "ui/xemu-settings.h"
 #include "renderer.h"
 #include "xemu-version.h"
@@ -47,6 +48,12 @@ static char const *const required_instance_extensions[] = {
 static char const *const required_device_extensions[] = {
     VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
     VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+};
+
+/* xboxrecomp (docs Update 675): the OS handle extensions only serve the
+ * display's GL interop. Wine on ARM (panvk) has no win32 variant; the
+ * display then uses CPU readback (display.c). */
+static char const *const interop_device_extensions[] = {
 #ifdef WIN32
     VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
     VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
@@ -383,6 +390,24 @@ static void add_optional_device_extension_names(
 {
     PGRAPHVkState *r = pg->vk_renderer_state;
 
+    r->display_interop_enabled = true;
+    for (int i = 0; i < ARRAY_SIZE(interop_device_extensions); i++) {
+        if (!is_extension_available(available_extensions,
+                                    interop_device_extensions[i])) {
+            r->display_interop_enabled = false;
+        }
+    }
+    if (r->display_interop_enabled) {
+        for (int i = 0; i < ARRAY_SIZE(interop_device_extensions); i++) {
+            add_extension_if_available(available_extensions,
+                                       enabled_extension_names,
+                                       interop_device_extensions[i]);
+        }
+    } else {
+        fprintf(stderr, "[VK] no %s: display uses CPU readback\n",
+                interop_device_extensions[0]);
+    }
+
     r->custom_border_color_extension_enabled =
         add_extension_if_available(available_extensions, enabled_extension_names,
                                    VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
@@ -441,21 +466,58 @@ static bool select_physical_device(PGRAPHState *pg, Error **errp)
         g_malloc_n(num_physical_devices, sizeof(VkPhysicalDevice));
     vkEnumeratePhysicalDevices(r->instance, &num_physical_devices, devices);
 
+    /* xboxrecomp (docs Update 670): upstream took the first compatible
+     * device, which on laptops with Intel + NVIDIA/AMD graphics is usually
+     * the integrated chip (the Windows "high performance GPU" setting does
+     * not apply to Vulkan) -- broken picture on an old Intel HD. Now: a
+     * device whose name contains RECOMP_VK_DEVICE (option GraphicsCard,
+     * case-insensitive) if set, else the discrete GPU with the most
+     * device-local memory, else the first compatible one. */
+    const char *want = getenv("RECOMP_VK_DEVICE");
+    int best = -1, best_score = -1;
     fprintf(stderr, "Available physical devices:\n");
     for (int i = 0; i < num_physical_devices; i++) {
-        vkGetPhysicalDeviceProperties(devices[i], &r->device_props);
-        fprintf(stderr, "- %s\n", r->device_props.deviceName);
-    }
-
-    // FIXME: Store preferred device
-
-    r->physical_device = VK_NULL_HANDLE;
-    for (int i = 0; i < num_physical_devices; i++) {
-        if (is_device_compatible(devices[i])) {
-            r->physical_device = devices[i];
-            break;
+        VkPhysicalDeviceProperties props;
+        VkPhysicalDeviceMemoryProperties mem;
+        vkGetPhysicalDeviceProperties(devices[i], &props);
+        vkGetPhysicalDeviceMemoryProperties(devices[i], &mem);
+        uint64_t local = 0;
+        for (uint32_t h = 0; h < mem.memoryHeapCount; h++) {
+            if (mem.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                local += mem.memoryHeaps[h].size;
+        }
+        bool ok = is_device_compatible(devices[i]);
+        const char *type =
+            props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" :
+            props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? "integrated" :
+            "other";
+        fprintf(stderr, "- %s (%s, %llu MB device memory%s)\n", props.deviceName,
+                type, (unsigned long long)(local >> 20),
+                ok ? "" : ", not usable");
+        if (!ok)
+            continue;
+        int score = 1;
+        if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            score = 2 + (int)(local >> 26);   /* + per 64 MB */
+        if (want && *want) {
+            char a[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE], b[128];
+            snprintf(a, sizeof a, "%s", props.deviceName);
+            snprintf(b, sizeof b, "%s", want);
+            for (char *p = a; *p; p++) *p = (char)tolower((unsigned char)*p);
+            for (char *p = b; *p; p++) *p = (char)tolower((unsigned char)*p);
+            if (strstr(a, b))
+                score = 1 << 30;
+        }
+        if (score > best_score) {
+            best_score = score;
+            best = i;
         }
     }
+    if (want && *want && best_score != 1 << 30)
+        fprintf(stderr, "GraphicsCard \"%s\": no usable device matches, "
+                        "choosing automatically\n", want);
+
+    r->physical_device = best >= 0 ? devices[best] : VK_NULL_HANDLE;
     if (r->physical_device == VK_NULL_HANDLE) {
         error_setg(errp, "Failed to find a suitable GPU");
         return false;
@@ -518,13 +580,33 @@ static bool create_logical_device(PGRAPHState *pg, Error **errp)
         VkBool32 available, *enabled;
     } required_features[] = {
         #define F(n) { #n, available_features.n, &enabled_features.n }
-        F(shaderClipDistance),
-        F(geometryShader),
-        F(shaderTessellationAndGeometryPointSize),
         F(depthClamp),
         F(occlusionQueryPrecise),
         #undef F
     };
+
+    /* xboxrecomp (docs Update 675): geometry shaders are optional. Mali GPUs
+     * (panvk) have none; quads are then split into triangles on the CPU
+     * (draw.c) and flat polygons use the provoking-vertex extension.
+     * RECOMP_VK_NO_GEOMETRY=1 simulates such a device. shaderClipDistance is
+     * not used by any generated shader. */
+    {
+        const char *ng = getenv("RECOMP_VK_NO_GEOMETRY");
+        bool force_off = ng && ng[0] == '1';
+        r->geometry_shader_supported =
+            !force_off && available_features.geometryShader == VK_TRUE;
+        enabled_features.geometryShader = r->geometry_shader_supported;
+        enabled_features.shaderTessellationAndGeometryPointSize =
+            r->geometry_shader_supported &&
+            available_features.shaderTessellationAndGeometryPointSize;
+        enabled_features.shaderClipDistance = available_features.shaderClipDistance;
+        r->fill_mode_non_solid_enabled =
+            !force_off && available_features.fillModeNonSolid == VK_TRUE;
+        enabled_features.fillModeNonSolid = r->fill_mode_non_solid_enabled;
+        if (!r->geometry_shader_supported)
+            fprintf(stderr, "[VK] no geometry shaders%s: quads split on the "
+                    "CPU (Mali mode)\n", force_off ? " (forced)" : "");
+    }
 
     bool all_features_available = true;
     for (int i = 0; i < ARRAY_SIZE(required_features); i++) {
@@ -541,6 +623,10 @@ static bool create_logical_device(PGRAPHState *pg, Error **errp)
         error_setg(errp, "Device does not support required features");
         return false;
     }
+
+    /* xboxrecomp (docs Update 669): optional, for TextureFiltering = 2. */
+    r->sampler_anisotropy_enabled = available_features.samplerAnisotropy == VK_TRUE;
+    enabled_features.samplerAnisotropy = available_features.samplerAnisotropy;
 
     void *next_struct = NULL;
 

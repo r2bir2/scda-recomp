@@ -1,0 +1,555 @@
+{
+ "functions": [
+  {
+   "name": "Direct3D_CreateDevice",
+   "address": "0x0049D210",
+   "convention": "stdcall",
+   "stack_args": 6
+  },
+  {
+   "name": "D3DDevice_Release",
+   "address": "0x0049A5B0",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3D_BlockOnResource",
+   "address": "0x004A17C0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DResource_BlockUntilNotBusy",
+   "address": "0x0049BF20",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DResource_IsBusy",
+   "address": "0x0049BE60",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3D_BlockOnTime",
+   "address": "0x004A1490",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_BlockOnFence",
+   "address": "0x0049A600",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_InsertFence",
+   "address": "0x0049A700",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_IsFencePending",
+   "address": "0x004A1290",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3D_SetFence",
+   "address": "0x004A13D0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3D_KickOffAndWaitForIdle",
+   "address": "0x004A17A0",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "CDevice_KickOff",
+   "address": "0x004A12B0",
+   "convention": "fastcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_MakeSpace",
+   "address": "0x004A1740",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3D_MakeRequestedSpace",
+   "address": "0x004A1600",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_BlockUntilVerticalBlank",
+   "address": "0x0049A610",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_SetFlickerFilter",
+   "address": "0x0049A650",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetSoftDisplayFilter",
+   "address": "0x0049A6A0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_EnableOverlay",
+   "address": "0x0049C100",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_PersistDisplay",
+   "address": "0x0049B800",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_FlushVertexCache",
+   "address": "0x0049B370",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_SetGammaRamp",
+   "address": "0x0049A3D0",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetRenderTarget",
+   "address": "0x0049A850",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_GetBackBuffer2",
+   "address": "0x0049AAD0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_GetRenderTarget2",
+   "address": "0x0049AE50",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_GetDepthStencilSurface2",
+   "address": "0x0049AE70",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_Swap",
+   "address": "0x0049CC50",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_Clear",
+   "address": "0x0049CE00",
+   "convention": "stdcall",
+   "stack_args": 6
+  },
+  {
+   "name": "D3DDevice_CopyRects",
+   "address": "0x0049AB20",
+   "convention": "stdcall",
+   "stack_args": 5
+  },
+  {
+   "name": "D3DDevice_SetViewport",
+   "address": "0x0049AE90",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetScissors",
+   "address": "0x0049B480",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_SetScreenSpaceOffset",
+   "address": "0x0049B930",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetRenderState_Simple",
+   "address": "0x0049EFC0",
+   "convention": "fastcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_SetRenderStateNotInline",
+   "address": "0x0049EFF0",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetTextureState_TexCoordIndex",
+   "address": "0x0049F830",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetTextureState_BumpEnv",
+   "address": "0x0049F940",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_SetTextureState_BorderColor",
+   "address": "0x0049F9B0",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetTextureState_ColorKeyColor",
+   "address": "0x0049F9F0",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetTextureStageStateNotInline",
+   "address": "0x0049FA30",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_SetTransform",
+   "address": "0x0049A460",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetMaterial",
+   "address": "0x0049A580",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetTexture",
+   "address": "0x0049B0C0",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetStreamSource",
+   "address": "0x0049E9E0",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_SetIndices",
+   "address": "0x0049B270",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_CreateVertexShader",
+   "address": "0x0049E770",
+   "convention": "stdcall",
+   "stack_args": 4
+  },
+  {
+   "name": "D3DDevice_DeleteVertexShader",
+   "address": "0x0049ED10",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetVertexShader",
+   "address": "0x0049EE20",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetVertexShaderConstant1Fast",
+   "address": "0x0049E8B0",
+   "convention": "fastcall",
+   "stack_args": 0
+  },
+  {
+   "name": "D3DDevice_SetVertexShaderConstantNotInlineFast",
+   "address": "0x0049E900",
+   "convention": "fastcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_LoadVertexShader",
+   "address": "0x0049EAB0",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SelectVertexShader",
+   "address": "0x0049EB10",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_SetShaderConstantMode",
+   "address": "0x0049EBB0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_CreatePixelShader",
+   "address": "0x004A5C60",
+   "convention": "stdcall",
+   "stack_args": 2
+  },
+  {
+   "name": "D3DDevice_DeletePixelShader",
+   "address": "0x004A5CB0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetPixelShader",
+   "address": "0x004A5CD0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetPixelShaderConstant",
+   "address": "0x004A5ED0",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_DrawVertices",
+   "address": "0x004A61A0",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_DrawIndexedVertices",
+   "address": "0x004A6240",
+   "convention": "stdcall",
+   "stack_args": 3
+  },
+  {
+   "name": "D3DDevice_Begin",
+   "address": "0x004A64E0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_End",
+   "address": "0x004A6520",
+   "convention": "stdcall",
+   "stack_args": 0
+  },
+  {
+   "name": "Lock2DSurface",
+   "address": "0x0049DE60",
+   "convention": "stdcall",
+   "stack_args": 6
+  },
+  {
+   "name": "D3DDevice_SetRenderState_PSTextureModes",
+   "address": "0x0049EF90",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_VertexBlend",
+   "address": "0x0049F7E0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_FogColor",
+   "address": "0x0049F340",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_FillMode",
+   "address": "0x0049F6B0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_BackFillMode",
+   "address": "0x0049F700",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_TwoSidedLighting",
+   "address": "0x0049F760",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_NormalizeNormals",
+   "address": "0x0049F440",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_ZEnable",
+   "address": "0x004A0210",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_StencilEnable",
+   "address": "0x004A02A0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_StencilFail",
+   "address": "0x004A0340",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_FrontFace",
+   "address": "0x0049F400",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_CullMode",
+   "address": "0x0049F390",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_TextureFactor",
+   "address": "0x0049F480",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_LogicOp",
+   "address": "0x0049F650",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_EdgeAntiAlias",
+   "address": "0x0049F2C0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_MultiSampleAntiAlias",
+   "address": "0x004A0580",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_MultiSampleMask",
+   "address": "0x004A0600",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_MultiSampleMode",
+   "address": "0x004A0520",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_MultiSampleRenderTargetMode",
+   "address": "0x004A0550",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_ShadowFunc",
+   "address": "0x0049F300",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_LineWidth",
+   "address": "0x0049F4E0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_SampleAlpha",
+   "address": "0x004A0650",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_Dxt1NoiseEnable",
+   "address": "0x0049F550",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_YuvEnable",
+   "address": "0x004A03B0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_OcclusionCullEnable",
+   "address": "0x004A03E0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_StencilCullEnable",
+   "address": "0x004A0450",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_RopZCmpAlwaysRead",
+   "address": "0x004A04C0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_RopZRead",
+   "address": "0x004A04E0",
+   "convention": "stdcall",
+   "stack_args": 1
+  },
+  {
+   "name": "D3DDevice_SetRenderState_DoNotCullUncompressed",
+   "address": "0x004A0500",
+   "convention": "stdcall",
+   "stack_args": 1
+  }
+ ],
+ "absent_in_image": [
+  "D3DDevice_SwitchTexture",
+  "D3DDevice_SetVertexShaderConstant1",
+  "D3DDevice_SetVertexShaderConstant4",
+  "D3DDevice_DrawVerticesUP",
+  "D3DDevice_SetTile"
+ ],
+ "globals": {
+  "D3D_DeferredTextureState": "0x004AB1D0",
+  "D3D_Device": "0x004AB670",
+  "D3D_DirtyFlags": "0x004AB1C8",
+  "D3D_IndexData": "0x004AB1C4",
+  "D3D_RenderState": "0x004AB3D0",
+  "D3D_SimpleRenderStateEncode": "0x004F54E8",
+  "D3D_Streams": "0x004ADB10",
+  "D3D_pDevice": "0x004AB668"
+ }
+}

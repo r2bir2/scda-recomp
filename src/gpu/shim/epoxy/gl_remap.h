@@ -74,6 +74,7 @@
 #define glIsMemoryObjectEXT xgl_glIsMemoryObjectEXT
 #define glLineWidth xgl_glLineWidth
 #define glLinkProgram xgl_glLinkProgram
+#define glMemoryObjectParameterivEXT xgl_glMemoryObjectParameterivEXT
 #define glMultiDrawArrays xgl_glMultiDrawArrays
 #define glObjectLabel xgl_glObjectLabel
 #define glPixelStorei xgl_glPixelStorei
@@ -92,6 +93,7 @@
 #define glStencilMask xgl_glStencilMask
 #define glStencilOp xgl_glStencilOp
 #define glTexImage2D xgl_glTexImage2D
+#define glTexSubImage2D xgl_glTexSubImage2D
 #define glTexImage3D xgl_glTexImage3D
 #define glTexParameterfv xgl_glTexParameterfv
 #define glTexParameteri xgl_glTexParameteri

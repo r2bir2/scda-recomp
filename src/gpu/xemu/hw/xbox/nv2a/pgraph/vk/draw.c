@@ -75,8 +75,13 @@ static VkPrimitiveTopology get_primitive_topology(PGRAPHState *pg)
     case PRIM_TYPE_TRIANGLE_FAN:
         return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
     case PRIM_TYPE_QUADS:
+        /* Mali mode (docs Update 675): split into a triangle list */
+        if (!r->geometry_shader_supported)
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         return VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY;
     case PRIM_TYPE_QUAD_STRIP:
+        if (!r->geometry_shader_supported)
+            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP_WITH_ADJACENCY;
     case PRIM_TYPE_POLYGON:
         if (polygon_mode == POLY_MODE_LINE) {
@@ -912,8 +917,12 @@ static void create_pipeline(PGRAPHState *pg)
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .depthClampEnable = VK_TRUE,
         .rasterizerDiscardEnable = VK_FALSE,
-        .polygonMode = pgraph_polygon_mode_vk_map[r->shader_binding->state
-                                                      .polygon_front_mode],
+        /* without fillModeNonSolid (Mali) wireframe/point fill falls back
+         * to solid (docs Update 675) */
+        .polygonMode = r->fill_mode_non_solid_enabled ?
+                           pgraph_polygon_mode_vk_map[r->shader_binding->state
+                                                          .polygon_front_mode] :
+                           VK_POLYGON_MODE_FILL,
         .lineWidth = 1.0f,
         .frontFace = (pgraph_reg_r(pg, NV_PGRAPH_SETUPRASTER) &
                       NV_PGRAPH_SETUPRASTER_FRONTFACE) ?
@@ -1366,6 +1375,8 @@ static void begin_render_pass(PGRAPHState *pg)
                                          r->zeta_binding->vram_addr : 0;
         r->pass_probe[index].width = vp_width;
         r->pass_probe[index].height = vp_height;
+        r->pass_probe[index].end_line = 0;
+        r->pass_probe[index].draws = 0;
         r->pass_probe_active = (int)index;
         vkCmdWriteTimestamp(r->command_buffer,
                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -1387,11 +1398,30 @@ static void begin_render_pass(PGRAPHState *pg)
 
 }
 
-static void end_render_pass(PGRAPHVkState *r)
+/* Clears inside the running render pass (ARM port, docs Update 678): a
+ * clear used to end the pass, clear in a pass of its own and end that too --
+ * on a tiling GPU (Mali) two extra full load/store rounds of the target per
+ * clear. vkCmdClearAttachments is valid inside the pass; the framebuffer and
+ * render-pass checks in begin_pre_draw still end it when the clear targets
+ * something else. RECOMP_VK_CLEAR_IN_PASS=0 restores the old behaviour. */
+static bool clear_in_pass(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_VK_CLEAR_IN_PASS");
+        on = !(e && e[0] == '0');
+    }
+    return on;
+}
+
+/* the probe records where each pass ended (RECOMP_VK_PASS_GPU_PROBE) */
+#define end_render_pass(r) end_render_pass_at((r), __LINE__)
+static void end_render_pass_at(PGRAPHVkState *r, int line)
 {
     if (r->in_render_pass) {
         vkCmdEndRenderPass(r->command_buffer);
         if (r->pass_probe_active >= 0) {
+            r->pass_probe[r->pass_probe_active].end_line = line;
             vkCmdWriteTimestamp(r->command_buffer,
                                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
                                 r->pass_probe_pool, r->pass_probe_query_count++);
@@ -1561,20 +1591,31 @@ void pgraph_vk_finish(PGRAPHState *pg, FinishReason finish_reason)
                 sizeof stamps, stamps, sizeof stamps[0],
                 VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
             if (result == VK_SUCCESS) {
+                /* panvk reports timestampPeriod 0 although the counter runs
+                 * (Mali: the 24 MHz system timer); RECOMP_VK_TS_PERIOD_NS
+                 * overrides, default 41.667 ns then (ARM port, docs
+                 * Update 678) */
+                double period = r->device_props.limits.timestampPeriod;
+                if (period <= 0.0) {
+                    const char *e = getenv("RECOMP_VK_TS_PERIOD_NS");
+                    period = e ? atof(e) : 1000.0 / 24.0;
+                }
                 for (uint32_t i = 0; i < r->pass_probe_count; i++) {
                     uint32_t first = r->pass_probe[i].first_query;
                     double gpu_us = (double)(stamps[first + 1] -
                                              stamps[first]) *
-                                    r->device_props.limits.timestampPeriod /
-                                    1000.0;
+                                    period / 1000.0;
                     fprintf(stderr,
                             "[VK-PASS-GPU] frame=%u color=%08llX "
-                            "zeta=%08llX size=%ux%u gpu_us=%.1f\n",
+                            "zeta=%08llX size=%ux%u gpu_us=%.1f "
+                            "draws=%u end=%d\n",
                             r->pass_probe[i].frame,
                             (unsigned long long)r->pass_probe[i].color_addr,
                             (unsigned long long)r->pass_probe[i].zeta_addr,
                             r->pass_probe[i].width,
-                            r->pass_probe[i].height, gpu_us);
+                            r->pass_probe[i].height, gpu_us,
+                            r->pass_probe[i].draws,
+                            r->pass_probe[i].end_line);
                 }
             } else {
                 fprintf(stderr, "[VK-PASS-GPU] query_error=%d\n", result);
@@ -1703,11 +1744,11 @@ void pgraph_vk_ensure_command_buffer(PGRAPHState *pg)
     }
 }
 
-void pgraph_vk_ensure_not_in_render_pass(PGRAPHState *pg)
+void pgraph_vk_ensure_not_in_render_pass_at(PGRAPHState *pg, int line)
 {
     PGRAPHVkState *r = pg->vk_renderer_state;
 
-    end_render_pass(r);
+    end_render_pass_at(r, line);
     if (r->query_in_flight) {
         end_query(r);
     }
@@ -1838,7 +1879,7 @@ static void begin_draw(PGRAPHState *pg)
         end_query(r);
     }
 
-    if (pg->clearing) {
+    if (pg->clearing && !clear_in_pass()) {
         end_render_pass(r);
     }
 
@@ -1848,6 +1889,8 @@ static void begin_draw(PGRAPHState *pg)
         begin_render_pass(pg);
         must_bind_pipeline = true;
     }
+    if (r->pass_probe_active >= 0)
+        r->pass_probe[r->pass_probe_active].draws++;
 
     if (must_bind_pipeline) {
         nv2a_profile_inc_counter(NV2A_PROF_PIPELINE_BIND);
@@ -1943,7 +1986,7 @@ static void end_draw(PGRAPHState *pg)
     assert(r->in_command_buffer);
     assert(r->in_render_pass);
 
-    if (pg->clearing) {
+    if (pg->clearing && !clear_in_pass()) {
         end_render_pass(r);
     }
 
@@ -2593,6 +2636,73 @@ static void copy_remapped_attributes_to_inline_buffer(PGRAPHState *pg,
     buffer->buffer_offset += remap.buffer_space_required;
 }
 
+/* Mali mode (docs Update 675): without geometry shaders, quads and quad
+ * strips are drawn as an indexed triangle list built here. Smooth quads keep
+ * the geometry shader's 0-2 diagonal; flat ones split along 1-3 so every
+ * triangle ends on the quad's last vertex, which the provoking-vertex
+ * extension (last) then uses for the flat colour, as the shader did. */
+/* Read from the PGRAPH state the shader state is built from (shaders.c):
+ * the bound shader binding may still be the previous draw's here. */
+static bool needs_quad_split(PGRAPHState *pg)
+{
+    PGRAPHVkState *r = pg->vk_renderer_state;
+    if (r->geometry_shader_supported)
+        return false;
+    int pm = pg->primitive_mode;
+    int poly = GET_MASK(pgraph_reg_r(pg, NV_PGRAPH_SETUPRASTER),
+                        NV_PGRAPH_SETUPRASTER_FRONTFACEMODE);
+    return (pm == PRIM_TYPE_QUADS || pm == PRIM_TYPE_QUAD_STRIP) &&
+           poly != POLY_MODE_POINT;
+}
+
+static uint32_t *s_quad_idx;
+static size_t s_quad_cap;
+
+/* Appends the triangles of `count` vertices -- src[i], or first + i when src
+ * is NULL -- after the n indices already built; returns the new total. */
+static size_t append_quad_split(PGRAPHState *pg, size_t n,
+                                const uint32_t *src, uint32_t first,
+                                uint32_t count)
+{
+    bool strip = pg->primitive_mode == PRIM_TYPE_QUAD_STRIP;
+    bool flat = GET_MASK(pgraph_reg_r(pg, NV_PGRAPH_CONTROL_3),
+                         NV_PGRAPH_CONTROL_3_SHADEMODE) !=
+                NV_PGRAPH_CONTROL_3_SHADEMODE_SMOOTH;
+    size_t quads = strip ? (count >= 4 ? (count - 2) / 2 : 0) : count / 4;
+    size_t need = n + quads * 6;
+
+    if (need > s_quad_cap) {
+        s_quad_cap = need * 2 + 1024;
+        s_quad_idx = (uint32_t *)realloc(s_quad_idx, s_quad_cap * sizeof(uint32_t));
+    }
+    uint32_t *o = s_quad_idx + n;
+    for (size_t q = 0; q < quads; q++) {
+        size_t b = strip ? q * 2 : q * 4;
+        uint32_t v[4];
+        for (int k = 0; k < 4; k++)
+            v[k] = src ? src[b + k] : first + (uint32_t)(b + k);
+        /* quad corner order: 0,1,2,3 for quads, 0,1,3,2 for strips */
+        static const uint8_t quad_smooth[6] = { 0, 1, 2, 0, 2, 3 };
+        static const uint8_t quad_flat[6]   = { 0, 1, 3, 1, 2, 3 };
+        static const uint8_t strip_smooth[6] = { 0, 1, 2, 1, 3, 2 };
+        static const uint8_t strip_flat[6]   = { 0, 1, 3, 2, 0, 3 };
+        const uint8_t *t = strip ? (flat ? strip_flat : strip_smooth) :
+                                   (flat ? quad_flat : quad_smooth);
+        for (int k = 0; k < 6; k++)
+            *o++ = v[t[k]];
+    }
+    return need;
+}
+
+/* Stages the split indices for the index buffer; returns their offset there.
+ * Called after begin_pre_draw and before begin_draw, the way the
+ * inline-elements path stages the game's own indices. */
+static VkDeviceSize upload_quad_split(PGRAPHState *pg, size_t n)
+{
+    return pgraph_vk_update_index_buffer(pg, s_quad_idx,
+                                         n * sizeof(s_quad_idx[0]));
+}
+
 void pgraph_vk_flush_draw(NV2AState *d)
 {
     PGRAPHState *pg = &d->pgraph;
@@ -2799,6 +2909,17 @@ void pgraph_vk_flush_draw(NV2AState *d)
         assert(pg->inline_buffer_length == 0);
         assert(pg->inline_array_length == 0);
 
+        bool quad_split = needs_quad_split(pg);
+        size_t quad_split_n = 0;
+        if (quad_split) {
+            for (int i = 0; i < pg->draw_arrays_length; i++)
+                quad_split_n = append_quad_split(pg, quad_split_n, NULL,
+                                                 pg->draw_arrays_start[i],
+                                                 pg->draw_arrays_count[i]);
+            ensure_buffer_space(pg, BUFFER_INDEX_STAGING,
+                                quad_split_n * sizeof(uint32_t));
+        }
+
         int64_t phase_start = sample_start;
 #define ARRAYS_PHASE(i) do { if (phase_start) { \
             int64_t now_ = nv2a_recomp_vk_now_us(); \
@@ -2822,11 +2943,21 @@ void pgraph_vk_flush_draw(NV2AState *d)
         begin_pre_draw(pg);
         ARRAYS_PHASE(3);
         copy_remapped_attributes_to_inline_buffer(pg, remap, 0, max_element);
+        VkDeviceSize quad_split_offset =
+            quad_split ? upload_quad_split(pg, quad_split_n) : 0;
         ARRAYS_PHASE(4);
         pgraph_vk_begin_debug_marker(r, r->command_buffer, RGBA_BLUE,
                                      "Draw Arrays");
         begin_draw(pg);
         bind_vertex_buffer(pg, remap.attributes, 0);
+        if (quad_split) {
+            vkCmdBindIndexBuffer(r->command_buffer,
+                                 r->storage_buffers[BUFFER_INDEX].buffer,
+                                 quad_split_offset, VK_INDEX_TYPE_UINT32);
+            if (quad_split_n)
+                vkCmdDrawIndexed(r->command_buffer, (uint32_t)quad_split_n,
+                                 1, 0, 0, 0);
+        } else
         for (int i = 0; i < pg->draw_arrays_length; i++) {
             uint32_t start = pg->draw_arrays_start[i],
                      count = pg->draw_arrays_count[i];
@@ -2849,6 +2980,14 @@ void pgraph_vk_flush_draw(NV2AState *d)
 
         size_t index_data_size =
             pg->inline_elements_length * sizeof(pg->inline_elements[0]);
+        /* Mali mode: the game's indices, split into triangles */
+        bool quad_split = needs_quad_split(pg);
+        size_t quad_split_n = 0;
+        if (quad_split) {
+            quad_split_n = append_quad_split(pg, 0, pg->inline_elements, 0,
+                                             pg->inline_elements_length);
+            index_data_size = quad_split_n * sizeof(uint32_t);
+        }
 
         ensure_buffer_space(pg, BUFFER_INDEX_STAGING, index_data_size);
 
@@ -2886,8 +3025,10 @@ void pgraph_vk_flush_draw(NV2AState *d)
             phase_start = now;
         }
         copy_remapped_attributes_to_inline_buffer(pg, remap, 0, max_element + 1);
-        VkDeviceSize buffer_offset = pgraph_vk_update_index_buffer(
-            pg, pg->inline_elements, index_data_size);
+        VkDeviceSize buffer_offset =
+            quad_split ? upload_quad_split(pg, quad_split_n) :
+                         pgraph_vk_update_index_buffer(
+                             pg, pg->inline_elements, index_data_size);
         if (phase_start) {
             int64_t now = nv2a_recomp_vk_now_us();
             sampled_inline_phase_us[4] += (uint64_t)(now - phase_start);
@@ -2900,8 +3041,10 @@ void pgraph_vk_flush_draw(NV2AState *d)
         vkCmdBindIndexBuffer(r->command_buffer,
                              r->storage_buffers[BUFFER_INDEX].buffer,
                              buffer_offset, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(r->command_buffer, pg->inline_elements_length, 1, 0, 0,
-                         0);
+        uint32_t index_count = quad_split ? (uint32_t)quad_split_n :
+                                            pg->inline_elements_length;
+        if (index_count)
+            vkCmdDrawIndexed(r->command_buffer, index_count, 1, 0, 0, 0);
         end_draw(pg);
         pgraph_vk_end_debug_marker(r, r->command_buffer);
         if (phase_start) {
@@ -2934,15 +3077,34 @@ void pgraph_vk_flush_draw(NV2AState *d)
             offset += vertex_data_size;
         }
         ensure_buffer_space(pg, BUFFER_VERTEX_INLINE_STAGING, offset);
+        bool quad_split = needs_quad_split(pg);
+        size_t quad_split_n = 0;
+        if (quad_split) {
+            quad_split_n = append_quad_split(pg, 0, NULL, 0,
+                                             pg->inline_buffer_length);
+            ensure_buffer_space(pg, BUFFER_INDEX_STAGING,
+                                quad_split_n * sizeof(uint32_t));
+        }
 
         begin_pre_draw(pg);
         VkDeviceSize buffer_offset = pgraph_vk_update_vertex_inline_buffer(
             pg, data, sizes, r->num_active_vertex_attribute_descriptions);
+        VkDeviceSize quad_split_offset =
+            quad_split ? upload_quad_split(pg, quad_split_n) : 0;
         pgraph_vk_begin_debug_marker(r, r->command_buffer, RGBA_BLUE,
                                      "Inline Buffer");
         begin_draw(pg);
         bind_inline_vertex_buffer(pg, buffer_offset);
-        vkCmdDraw(r->command_buffer, pg->inline_buffer_length, 1, 0, 0);
+        if (quad_split) {
+            vkCmdBindIndexBuffer(r->command_buffer,
+                                 r->storage_buffers[BUFFER_INDEX].buffer,
+                                 quad_split_offset, VK_INDEX_TYPE_UINT32);
+            if (quad_split_n)
+                vkCmdDrawIndexed(r->command_buffer, (uint32_t)quad_split_n,
+                                 1, 0, 0, 0);
+        } else {
+            vkCmdDraw(r->command_buffer, pg->inline_buffer_length, 1, 0, 0);
+        }
         end_draw(pg);
         pgraph_vk_end_debug_marker(r, r->command_buffer);
 
@@ -2977,16 +3139,34 @@ void pgraph_vk_flush_draw(NV2AState *d)
         NV2A_DPRINTF("draw inline array %d, %d\n", vertex_size, index_count);
         pgraph_vk_bind_vertex_attributes(d, 0, index_count - 1, true,
                                          vertex_size, index_count - 1);
+        bool quad_split = needs_quad_split(pg);
+        size_t quad_split_n = 0;
+        if (quad_split) {
+            quad_split_n = append_quad_split(pg, 0, NULL, 0, index_count);
+            ensure_buffer_space(pg, BUFFER_INDEX_STAGING,
+                                quad_split_n * sizeof(uint32_t));
+        }
 
         begin_pre_draw(pg);
         void *inline_array_data = pg->inline_array;
         VkDeviceSize buffer_offset = pgraph_vk_update_vertex_inline_buffer(
             pg, &inline_array_data, &inline_array_data_size, 1);
+        VkDeviceSize quad_split_offset =
+            quad_split ? upload_quad_split(pg, quad_split_n) : 0;
         pgraph_vk_begin_debug_marker(r, r->command_buffer, RGBA_BLUE,
                                      "Inline Array");
         begin_draw(pg);
         bind_inline_vertex_buffer(pg, buffer_offset);
-        vkCmdDraw(r->command_buffer, index_count, 1, 0, 0);
+        if (quad_split) {
+            vkCmdBindIndexBuffer(r->command_buffer,
+                                 r->storage_buffers[BUFFER_INDEX].buffer,
+                                 quad_split_offset, VK_INDEX_TYPE_UINT32);
+            if (quad_split_n)
+                vkCmdDrawIndexed(r->command_buffer, (uint32_t)quad_split_n,
+                                 1, 0, 0, 0);
+        } else {
+            vkCmdDraw(r->command_buffer, index_count, 1, 0, 0);
+        }
         end_draw(pg);
         pgraph_vk_end_debug_marker(r, r->command_buffer);
         NV2A_VK_DGROUP_END();
